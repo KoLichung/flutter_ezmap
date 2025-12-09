@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要使用您的位置來記錄 GPS 軌跡和顯示地圖</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>需要持續使用您的位置來記錄登山軌跡，即使在背景運行</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>需要持續使用您的位置來記錄登山軌跡</string>
 </dict>
 </plist>
