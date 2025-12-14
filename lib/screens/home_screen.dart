@@ -14,17 +14,28 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   
-  final List<Widget> _screens = [
-    const JourneyScreen(),
-    const ProfileScreen(),
-  ];
+  late final List<Widget> _screens;
 
   @override
   void initState() {
     super.initState();
+    
+    // 初始化 screens 列表
+    _screens = [
+      const JourneyScreen(),
+      ProfileScreen(onSwitchTab: _switchTab),
+    ];
+    
     // 初始化 GPS 位置
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<RecordingProvider>().initializePosition();
+    });
+  }
+  
+  // 切換 tab 的方法
+  void _switchTab(int index) {
+    setState(() {
+      _currentIndex = index;
     });
   }
 

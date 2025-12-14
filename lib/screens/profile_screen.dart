@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'downloaded_routes_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
-  const ProfileScreen({super.key});
+  final Function(int)? onSwitchTab;
+  
+  const ProfileScreen({super.key, this.onSwitchTab});
 
   @override
   Widget build(BuildContext context) {
@@ -35,11 +38,18 @@ class ProfileScreen extends StatelessWidget {
             icon: Icons.download_done,
             title: '已下載路線',
             subtitle: '查看已下載的路線',
-            onTap: () {
-              // TODO: 導航到已下載路線頁面
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已下載路線功能開發中...')),
+            onTap: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const DownloadedRoutesScreen(),
+                ),
               );
+              
+              // 如果返回 true，表示需要切换到旅程 tab
+              if (result == true && onSwitchTab != null) {
+                onSwitchTab!(0); // 切换到 index 0（旅程 tab）
+              }
             },
           ),
           const Divider(),
