@@ -75,9 +75,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 記錄中的控制區域（4個按鈕一排，類似 tab 樣式）
+  // 記錄中的控制區域（4個按鈕一排，固定高度 56px）
   Widget _buildRecordingControls(RecordingProvider recordingProvider) {
     return Container(
+      height: 96, // 固定高度，與 BottomNavigationBar 一致
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -88,137 +89,62 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 統計信息
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.access_time,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 4),
-                const Text(
-                  '00:00:00',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                const Icon(
-                  Icons.straighten,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '${recordingProvider.currentDistance.toStringAsFixed(2)} km',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Spacer(),
-                const Icon(
-                  Icons.arrow_upward,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '${recordingProvider.currentAscent.toStringAsFixed(0)} m',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Icon(
-                  Icons.arrow_downward,
-                  size: 16,
-                  color: Colors.grey,
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  '${recordingProvider.currentDescent.toStringAsFixed(0)} m',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
+      child: SafeArea(
+        top: false,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: [
+            // 活動分析
+            _buildTabButton(
+              icon: Icons.analytics_outlined,
+              label: '活動分析',
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('活動分析功能開發中...')),
+                );
+              },
             ),
-          ),
-          
-          const Divider(height: 1),
-          
-          // 四個按鈕一排（類似 tab 樣式）
-          SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  // 活動分析
-                  _buildTabButton(
-                    icon: Icons.analytics_outlined,
-                    label: '活動分析',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('活動分析功能開發中...')),
-                      );
-                    },
-                  ),
-                  
-                  // 添加紀錄點
-                  _buildTabButton(
-                    icon: Icons.add_location_outlined,
-                    label: '紀錄點',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('添加紀錄點功能開發中...')),
-                      );
-                    },
-                  ),
-                  
-                  // 暫停/繼續
-                  _buildTabButton(
-                    icon: recordingProvider.isPaused
-                        ? Icons.play_arrow
-                        : Icons.pause,
-                    label: recordingProvider.isPaused ? '繼續' : '暫停',
-                    color: recordingProvider.isPaused
-                        ? Colors.green.shade700
-                        : Colors.orange.shade700,
-                    onTap: () {
-                      if (recordingProvider.isPaused) {
-                        recordingProvider.resumeRecording();
-                      } else {
-                        recordingProvider.pauseRecording();
-                      }
-                    },
-                  ),
-                  
-                  // 結束
-                  _buildTabButton(
-                    icon: Icons.stop,
-                    label: '結束',
-                    color: Colors.red.shade700,
-                    onTap: () {
-                      _showStopRecordingDialog(context, recordingProvider);
-                    },
-                  ),
-                ],
-              ),
+            
+            // 添加紀錄點
+            _buildTabButton(
+              icon: Icons.add_location_outlined,
+              label: '紀錄點',
+              onTap: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('添加紀錄點功能開發中...')),
+                );
+              },
             ),
-          ),
-        ],
+            
+            // 暫停/繼續
+            _buildTabButton(
+              icon: recordingProvider.isPaused
+                  ? Icons.play_arrow
+                  : Icons.pause,
+              label: recordingProvider.isPaused ? '繼續' : '暫停',
+              color: recordingProvider.isPaused
+                  ? Colors.green.shade700
+                  : Colors.orange.shade700,
+              onTap: () {
+                if (recordingProvider.isPaused) {
+                  recordingProvider.resumeRecording();
+                } else {
+                  recordingProvider.pauseRecording();
+                }
+              },
+            ),
+            
+            // 結束
+            _buildTabButton(
+              icon: Icons.stop,
+              label: '結束',
+              color: Colors.red.shade700,
+              onTap: () {
+                _showStopRecordingDialog(context, recordingProvider);
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -231,23 +157,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     final buttonColor = color ?? Colors.grey.shade700;
     
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
               icon,
-              size: 28,
+              size: 24,
               color: buttonColor,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 10,
                 color: buttonColor,
               ),
             ),
@@ -281,6 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
             ),
             child: const Text('結束'),
           ),

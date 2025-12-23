@@ -30,6 +30,16 @@ class _JourneyScreenState extends State<JourneyScreen> {
         setState(() {
           _compassHeading = event.heading;
         });
+        
+        // 將羅盤方向傳遞給 RecordingProvider
+        // 這樣在更新位置時可以一併更新方向
+        final recordingProvider = context.read<RecordingProvider>();
+        if (recordingProvider.currentPosition != null) {
+          recordingProvider.updatePosition(
+            recordingProvider.currentPosition!,
+            compassHeading: event.heading,
+          );
+        }
       }
     });
   }
@@ -40,10 +50,39 @@ class _JourneyScreenState extends State<JourneyScreen> {
       final recordingProvider = context.read<RecordingProvider>();
       final mapProvider = context.read<MapProvider>();
       
+      // 設置回調：當初始位置獲取後，初始化地圖（包含方向信息）
+      recordingProvider.onInitialPositionReceived = (location, heading) {
+        if (!mapProvider.isInitialized) {
+          // 使用羅盤數據優先，否則使用 GPS heading
+          final currentHeading = _compassHeading ?? heading;
+          mapProvider.initializeToCurrentLocation(location, heading: currentHeading);
+        }
+      };
+      
+      // 設置回調：當位置更新時，更新地圖位置
+      recordingProvider.onPositionUpdate = (location, heading) {
+        mapProvider.updateUserLocation(location, heading: heading);
+      };
+      
+      // 設置回調：開始記錄時啟動地圖跟隨模式
+      recordingProvider.onStartRecording = () {
+        mapProvider.startRecordingMode();
+      };
+      
+      // 設置回調：停止記錄時關閉地圖跟隨模式
+      recordingProvider.onStopRecording = () {
+        mapProvider.stopRecordingMode();
+      };
+      
+      // 如果已經有位置數據但地圖還沒初始化，立即初始化
       if (recordingProvider.currentPosition != null && !mapProvider.isInitialized) {
         final position = recordingProvider.currentPosition!;
+        // 使用羅盤數據優先，否則使用 GPS heading
+        final heading = _compassHeading ?? 
+            (position.heading != null && position.heading >= 0 ? position.heading : null);
         mapProvider.initializeToCurrentLocation(
           LatLng(position.latitude, position.longitude),
+          heading: heading,
         );
       }
     });
@@ -72,26 +111,28 @@ class _JourneyScreenState extends State<JourneyScreen> {
             child: _buildScaleBar(),
           ),
           
-          // 定位按鈕（右侧，与比例尺上缘对齐）
-          Positioned(
-            top: 160,
-            right: 16,
-            child: _buildLocationButton(),
-          ),
-          
-          // 導航按鈕（定位按鈕下方）
-          Positioned(
-            top: 220,
-            right: 16,
-            child: _buildNavigationButton(),
-          ),
-          
-          // 清除路線按鈕（導航按鈕下方）
-          Consumer<MapProvider>(
-            builder: (context, mapProvider, child) {
-              if (mapProvider.gpxRoutePoints != null && mapProvider.gpxRoutePoints!.isNotEmpty) {
+          // 定位按鈕（右侧，与比例尺上缘对齐）- 只在非記錄模式下顯示
+          Consumer<RecordingProvider>(
+            builder: (context, recordingProvider, child) {
+              if (!recordingProvider.isRecording) {
                 return Positioned(
-                  top: 260,
+                  top: 160,
+                  right: 16,
+                  child: _buildLocationButton(),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          
+          // 清除路線按鈕（定位按鈕下方）- 只在非記錄模式下顯示
+          Consumer2<MapProvider, RecordingProvider>(
+            builder: (context, mapProvider, recordingProvider, child) {
+              if (!recordingProvider.isRecording &&
+                  mapProvider.gpxRoutePoints != null && 
+                  mapProvider.gpxRoutePoints!.isNotEmpty) {
+                return Positioned(
+                  top: 220,
                   right: 16,
                   child: _buildClearRouteButton(),
                 );
@@ -116,6 +157,21 @@ class _JourneyScreenState extends State<JourneyScreen> {
               return const SizedBox.shrink();
             },
           ),
+          
+          // 記錄中的統計信息浮動窗口（覆蓋在地圖上方）
+          Consumer<RecordingProvider>(
+            builder: (context, recordingProvider, child) {
+              if (recordingProvider.isRecording) {
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _buildStatsOverlay(recordingProvider),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
         ],
       ),
     );
@@ -129,31 +185,36 @@ class _JourneyScreenState extends State<JourneyScreen> {
           options: MapOptions(
             initialCenter: mapProvider.currentCenter,
             initialZoom: mapProvider.currentZoom,
+            initialRotation: mapProvider.currentRotation,
             minZoom: 5,
             maxZoom: 18,
+            interactionOptions: InteractionOptions(
+              // 記錄模式下禁用旋轉手勢（因為地圖會自動旋轉）
+              flags: mapProvider.isRecordingMode 
+                  ? InteractiveFlag.drag | InteractiveFlag.pinchZoom
+                  : InteractiveFlag.all,
+            ),
             onMapEvent: (event) {
-              print('[JourneyScreen] MapEvent triggered: ${event.runtimeType}');
-              print('[JourneyScreen] Camera zoom: ${event.camera.zoom}, center: ${event.camera.center}');
-              print('[JourneyScreen] Current provider zoom: ${mapProvider.currentZoom}');
-              
               // 检查 zoom 是否变化
               final newZoom = event.camera.zoom;
               final currentZoom = mapProvider.currentZoom;
               
               if ((newZoom - currentZoom).abs() > 0.001) {
-                print('[JourneyScreen] Zoom changed from $currentZoom to $newZoom');
                 mapProvider.updateZoom(newZoom);
-              } else {
-                print('[JourneyScreen] Zoom unchanged: $newZoom');
               }
               
-              // 更新中心点（移动事件）
-              if (event is MapEventMove) {
-                print('[JourneyScreen] MapEventMove detected, updating center');
-                mapProvider.updateCenter(event.camera.center);
-              } else {
-                // 对于其他事件，也更新中心点（可能包含缩放）
-                mapProvider.updateCenter(event.camera.center);
+              // 更新旋轉角度
+              if (event.camera.rotation != mapProvider.currentRotation && !mapProvider.isRecordingMode) {
+                mapProvider.updateRotation(event.camera.rotation);
+              }
+              
+              // 如果是用戶手動移動地圖（拖動或手勢操作）
+              if (event is MapEventMove || event is MapEventMoveEnd) {
+                if (event.source == MapEventSource.dragStart ||
+                    event.source == MapEventSource.onDrag ||
+                    event.source == MapEventSource.dragEnd) {
+                  mapProvider.updateCenter(event.camera.center);
+                }
               }
             },
           ),
@@ -176,7 +237,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
                 ],
               ),
             
-            // 記錄中的軌跡線（紅色，如果有記錄）
+            // 記錄中的軌跡線（棕色，如果有記錄）
             Consumer<RecordingProvider>(
               builder: (context, recordingProvider, child) {
                 final trackPoints = recordingProvider.currentActivity?.trackPoints ?? [];
@@ -188,8 +249,8 @@ class _JourneyScreenState extends State<JourneyScreen> {
                       points: trackPoints
                           .map((p) => LatLng(p.latitude, p.longitude))
                           .toList(),
-                      strokeWidth: 4,
-                      color: Colors.red,
+                      strokeWidth: 5,
+                      color: const Color(0xFF8B4513), // 棕色 (SaddleBrown)
                     ),
                   ],
                 );
@@ -208,6 +269,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
                       point: LatLng(position.latitude, position.longitude),
                       width: 50,
                       height: 50,
+                      alignment: Alignment.center,
                       child: _buildLocationMarker(),
                     ),
                   ],
@@ -352,14 +414,23 @@ class _JourneyScreenState extends State<JourneyScreen> {
 
   // 地圖上的位置標記（紅色箭頭指向手機朝向）
   Widget _buildLocationMarker() {
-    return Consumer<RecordingProvider>(
-      builder: (context, recordingProvider, child) {
+    return Consumer2<RecordingProvider, MapProvider>(
+      builder: (context, recordingProvider, mapProvider, child) {
         final position = recordingProvider.currentPosition;
         // 使用羅盤數據，如果沒有則使用 GPS heading
         final heading = _compassHeading ?? (position?.heading != null && position!.heading >= 0 ? position.heading : 0.0);
         
+        // 標記旋轉邏輯：
+        // - Icons.navigation 默認指向上方
+        // - 在記錄模式下：地圖已旋轉 -heading 度，標記需要旋轉 +heading 度來補償
+        //   這樣標記在螢幕上的實際方向 = -heading + heading = 0（朝上）
+        // - 在正常模式下：標記根據heading旋轉，指向實際方向
+        final markerRotation = mapProvider.isRecordingMode 
+            ? heading * math.pi / 180  // 記錄模式：補償地圖旋轉，使標記在螢幕上朝上
+            : heading * math.pi / 180;  // 正常模式：標記跟隨方向旋轉
+        
         return Transform.rotate(
-          angle: (heading * math.pi) / 180,
+          angle: markerRotation,
           child: Icon(
             Icons.navigation,
             color: Colors.red.shade700,
@@ -401,8 +472,13 @@ class _JourneyScreenState extends State<JourneyScreen> {
           final position = recordingProvider.currentPosition;
           
           if (position != null) {
+            // 使用羅盤數據，如果沒有則使用 GPS heading
+            final heading = _compassHeading ?? 
+                (position.heading != null && position.heading >= 0 ? position.heading : null);
+            
             mapProvider.moveToLocation(
               LatLng(position.latitude, position.longitude),
+              heading: heading,
             );
           }
         },
@@ -412,41 +488,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
     );
   }
   
-  Widget _buildNavigationButton() {
-    return Consumer<MapProvider>(
-      builder: (context, mapProvider, child) {
-        final hasRoute = mapProvider.gpxRoutePoints != null && mapProvider.gpxRoutePoints!.isNotEmpty;
-        
-        return Container(
-          decoration: BoxDecoration(
-            color: hasRoute ? Colors.green.shade600 : Colors.grey.shade400,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.navigation),
-            onPressed: () {
-              if (hasRoute) {
-                _showNavigationDialog();
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('導航需匯入路線並在路線附近才可開啟')),
-                );
-              }
-            },
-            color: Colors.white,
-            iconSize: 24,
-          ),
-        );
-      },
-    );
-  }
   
   Widget _buildClearRouteButton() {
     return Container(
@@ -470,35 +511,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
     );
   }
   
-  void _showNavigationDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('開始導航'),
-        content: const Text('導航模式會持續追蹤您的位置並計算路線，相對耗電。確定要開始導航嗎？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // TODO: 實現導航功能
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('開始導航')),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade600,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('確定'),
-          ),
-        ],
-      ),
-    );
-  }
   
   void _showClearRouteDialog() {
     showDialog(
@@ -537,9 +549,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
         // 根據縮放級別和緯度計算比例尺
         final zoom = mapProvider.currentZoom;
         final latitude = mapProvider.currentCenter.latitude;
-        print('[JourneyScreen] _buildScaleBar called with zoom: $zoom, latitude: $latitude');
         final scale = _calculateScaleDistance(zoom, latitude);
-        print('[JourneyScreen] Calculated scale: half=${scale['half']}, full=${scale['full']}');
         
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -604,8 +614,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
   
   Map<String, String> _calculateScaleDistance(double zoom, double latitude) {
-    print('[JourneyScreen] _calculateScaleDistance called with zoom: $zoom, latitude: $latitude');
-    
     // Web Mercator 投影的比例尺計算公式
     // 地球赤道周長約 40075017 米
     // 在 Web Mercator 投影中，每像素的米數 = (40075017 / (256 * 2^zoom)) * cos(latitude)
@@ -626,9 +634,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
     final scalePixels = 100.0;
     final scaleMeters = metersPerPixel * scalePixels;
     
-    print('[JourneyScreen] zoomPower: $zoomPower, cosLatitude: $cosLatitude');
-    print('[JourneyScreen] metersPerPixel: $metersPerPixel, scaleMeters: $scaleMeters');
-    
     // 選擇合適的刻度（50m, 100m, 200m, 500m, 1km, 2km, 5km等）
     final niceScales = [
       50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000
@@ -648,8 +653,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
       selectedScale = niceScales.first;
     }
     
-    print('[JourneyScreen] selectedScale: $selectedScale');
-    
     // 格式化顯示
     String formatDistance(int meters) {
       if (meters >= 1000) {
@@ -662,8 +665,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
       'half': formatDistance(selectedScale ~/ 2),
       'full': formatDistance(selectedScale),
     };
-    
-    print('[JourneyScreen] Final scale result: $result');
     
     return result;
   }
@@ -691,6 +692,85 @@ class _JourneyScreenState extends State<JourneyScreen> {
         ),
         elevation: 8,
         shadowColor: Colors.green.shade900,
+      ),
+    );
+  }
+  
+  // 記錄中的統計信息浮動窗口
+  Widget _buildStatsOverlay(RecordingProvider recordingProvider) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, -2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            const Icon(
+              Icons.access_time,
+              size: 16,
+              color: Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            const Text(
+              '00:00:00',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Icon(
+              Icons.straighten,
+              size: 16,
+              color: Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '${recordingProvider.currentDistance.toStringAsFixed(2)} km',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            const Icon(
+              Icons.arrow_upward,
+              size: 16,
+              color: Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '${recordingProvider.currentAscent.toStringAsFixed(0)} m',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Icon(
+              Icons.arrow_downward,
+              size: 16,
+              color: Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '${recordingProvider.currentDescent.toStringAsFixed(0)} m',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
