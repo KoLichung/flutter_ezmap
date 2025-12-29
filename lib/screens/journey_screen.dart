@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import '../providers/map_provider.dart';
 import '../providers/recording_provider.dart';
 
@@ -16,6 +18,11 @@ class JourneyScreen extends StatefulWidget {
 
 class _JourneyScreenState extends State<JourneyScreen> {
   double? _compassHeading;
+  
+  // 测距相关状态
+  bool _isMeasuring = false;
+  List<LatLng> _measurementPoints = [];
+  final Distance _distance = Distance();
 
   @override
   void initState() {
@@ -111,12 +118,40 @@ class _JourneyScreenState extends State<JourneyScreen> {
             child: _buildScaleBar(),
           ),
           
-          // 定位按鈕（右侧，与比例尺上缘对齐）- 只在非記錄模式下顯示
+          // 测距按鈕（右侧，与比例尺上缘对齐）- 只在非記錄模式下顯示
           Consumer<RecordingProvider>(
             builder: (context, recordingProvider, child) {
               if (!recordingProvider.isRecording) {
                 return Positioned(
                   top: 160,
+                  right: 16,
+                  child: _buildMeasureButton(),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          
+          // 輸入座標按鈕（测距按鈕下方）- 只在非記錄模式下顯示
+          Consumer<RecordingProvider>(
+            builder: (context, recordingProvider, child) {
+              if (!recordingProvider.isRecording) {
+                return Positioned(
+                  top: 220,
+                  right: 16,
+                  child: _buildCoordinateInputButton(),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+          
+          // 定位按鈕（輸入座標按鈕下方）- 只在非記錄模式下顯示
+          Consumer<RecordingProvider>(
+            builder: (context, recordingProvider, child) {
+              if (!recordingProvider.isRecording) {
+                return Positioned(
+                  top: 280,
                   right: 16,
                   child: _buildLocationButton(),
                 );
@@ -132,7 +167,7 @@ class _JourneyScreenState extends State<JourneyScreen> {
                   mapProvider.gpxRoutePoints != null && 
                   mapProvider.gpxRoutePoints!.isNotEmpty) {
                 return Positioned(
-                  top: 220,
+                  top: 340,
                   right: 16,
                   child: _buildClearRouteButton(),
                 );
@@ -194,6 +229,12 @@ class _JourneyScreenState extends State<JourneyScreen> {
                   ? InteractiveFlag.drag | InteractiveFlag.pinchZoom
                   : InteractiveFlag.all,
             ),
+            onTap: _isMeasuring ? (tapPosition, point) {
+              // 测距模式下，点击地图添加图钉
+              setState(() {
+                _measurementPoints.add(point);
+              });
+            } : null,
             onMapEvent: (event) {
               // 检查 zoom 是否变化
               final newZoom = event.camera.zoom;
@@ -257,6 +298,41 @@ class _JourneyScreenState extends State<JourneyScreen> {
               },
             ),
             
+            // 測距圖釘和連線
+            if (_isMeasuring && _measurementPoints.isNotEmpty)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _measurementPoints,
+                    strokeWidth: 3,
+                    color: Colors.green.shade600,
+                  ),
+                ],
+              ),
+            
+            // 測距圖釘標記
+            if (_isMeasuring && _measurementPoints.isNotEmpty)
+              MarkerLayer(
+                markers: _measurementPoints.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final point = entry.value;
+                  return Marker(
+                    point: point,
+                    width: 30,
+                    height: 50,
+                    alignment: Alignment.topCenter,
+                    rotate: true,
+                    child: CustomPaint(
+                      size: const Size(30, 50),
+                      painter: PinMarkerPainter(
+                        number: index + 1,
+                        color: Colors.green.shade600,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            
             // 當前位置標記（帶羅盤指示）
             Consumer<RecordingProvider>(
               builder: (context, recordingProvider, child) {
@@ -283,6 +359,10 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 
   Widget _buildInfoCards() {
+    if (_isMeasuring) {
+      return _buildMeasureControlPanel();
+    }
+    
     return Consumer<RecordingProvider>(
       builder: (context, recordingProvider, child) {
         final position = recordingProvider.currentPosition;
@@ -305,32 +385,53 @@ class _JourneyScreenState extends State<JourneyScreen> {
           ),
           child: Row(
             children: [
-              // 座標部分
+              // 座標部分（可點擊複製）
               Expanded(
                 flex: 3,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '座標',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+                child: InkWell(
+                  onTap: () {
+                    if (position != null) {
+                      final lat = position.latitude.toStringAsFixed(6);
+                      final lng = position.longitude.toStringAsFixed(6);
+                      final coordText = '$lat, $lng';
+                      
+                      Clipboard.setData(ClipboardData(text: coordText));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('已複製座標: $coordText'),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '座標',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          position != null
+                              ? '${position.latitude.toStringAsFixed(6)}\n${position.longitude.toStringAsFixed(6)}'
+                              : '--\n--',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      position != null
-                          ? '${position.latitude.toStringAsFixed(6)}\n${position.longitude.toStringAsFixed(6)}'
-                          : '--\n--',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
               
@@ -411,6 +512,92 @@ class _JourneyScreenState extends State<JourneyScreen> {
       },
     );
   }
+  
+  // 测距控制面板
+  Widget _buildMeasureControlPanel() {
+    final totalDistance = _calculateTotalDistance();
+    
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // 回复按钮
+          IconButton(
+            icon: const Icon(Icons.undo),
+            onPressed: _measurementPoints.isNotEmpty ? _undoLastPoint : null,
+            color: Colors.blue.shade600,
+            iconSize: 24,
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // 测距结果
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '总距离',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatDistance(totalDistance),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.green,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // 清除按钮
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            onPressed: _measurementPoints.isNotEmpty ? _clearAllPoints : null,
+            color: Colors.red.shade600,
+            iconSize: 24,
+          ),
+          
+          const SizedBox(width: 8),
+          
+          // 结束测距按钮
+          ElevatedButton(
+            onPressed: _endMeasuring,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.grey.shade600,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: const Text('结束'),
+          ),
+        ],
+      ),
+    );
+  }
 
   // 地圖上的位置標記（紅色箭頭指向手機朝向）
   Widget _buildLocationMarker() {
@@ -451,10 +638,10 @@ class _JourneyScreenState extends State<JourneyScreen> {
     );
   }
   
-  Widget _buildLocationButton() {
+  Widget _buildMeasureButton() {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.blue.shade600,
+        color: _isMeasuring ? Colors.green.shade600 : Colors.white,
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
@@ -465,7 +652,62 @@ class _JourneyScreenState extends State<JourneyScreen> {
         ],
       ),
       child: IconButton(
-        icon: const Icon(Icons.my_location),
+        icon: Icon(
+          Icons.straighten,
+          color: _isMeasuring ? Colors.white : Colors.green.shade600,
+        ),
+        onPressed: () {
+          setState(() {
+            if (_isMeasuring) {
+              _endMeasuring();
+            } else {
+              _startMeasuring();
+            }
+          });
+        },
+        iconSize: 24,
+      ),
+    );
+  }
+  
+  Widget _buildCoordinateInputButton() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(Icons.edit_location, color: Colors.grey.shade700),
+        onPressed: () {
+          _showCoordinateInputDialog();
+        },
+        iconSize: 24,
+      ),
+    );
+  }
+  
+  Widget _buildLocationButton() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(Icons.navigation, color: Colors.grey.shade700),
         onPressed: () {
           final mapProvider = context.read<MapProvider>();
           final recordingProvider = context.read<RecordingProvider>();
@@ -482,7 +724,6 @@ class _JourneyScreenState extends State<JourneyScreen> {
             );
           }
         },
-        color: Colors.white,
         iconSize: 24,
       ),
     );
@@ -511,6 +752,86 @@ class _JourneyScreenState extends State<JourneyScreen> {
     );
   }
   
+  
+  void _showCoordinateInputDialog() {
+    final coordController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('輸入座標'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: coordController,
+              decoration: const InputDecoration(
+                labelText: '座標',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.text,
+              maxLines: 1,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '請輸入「緯度, 經度」，用逗號分隔\n例如: 24.082746, 120.558229',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final input = coordController.text.trim();
+              final parts = input.split(',');
+              
+              if (parts.length == 2) {
+                var lat = double.tryParse(parts[0].trim());
+                var lng = double.tryParse(parts[1].trim());
+                
+                if (lat != null && lng != null && 
+                    lat >= -90 && lat <= 90 && 
+                    lng >= -180 && lng <= 180) {
+                  // 縮減為小數點後 6 位
+                  lat = double.parse(lat.toStringAsFixed(6));
+                  lng = double.parse(lng.toStringAsFixed(6));
+                  
+                  Navigator.pop(context);
+                  final mapProvider = context.read<MapProvider>();
+                  mapProvider.moveToLocation(LatLng(lat, lng));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('已移動到座標: $lat, $lng')),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('請輸入有效的座標範圍')),
+                  );
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('格式錯誤，請用逗號分隔經緯度')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('確定'),
+          ),
+        ],
+      ),
+    );
+  }
   
   void _showClearRouteDialog() {
     showDialog(
@@ -696,6 +1017,65 @@ class _JourneyScreenState extends State<JourneyScreen> {
     );
   }
   
+  
+  // 開始測距
+  void _startMeasuring() {
+    setState(() {
+      _isMeasuring = true;
+      _measurementPoints.clear();
+    });
+  }
+  
+  // 結束測距
+  void _endMeasuring() {
+    setState(() {
+      _isMeasuring = false;
+      _measurementPoints.clear();
+    });
+  }
+  
+  // 撤銷上一個圖釘
+  void _undoLastPoint() {
+    if (_measurementPoints.isNotEmpty) {
+      setState(() {
+        _measurementPoints.removeLast();
+      });
+    }
+  }
+  
+  // 清除所有圖釘
+  void _clearAllPoints() {
+    setState(() {
+      _measurementPoints.clear();
+    });
+  }
+  
+  // 計算總距離
+  double _calculateTotalDistance() {
+    if (_measurementPoints.length < 2) {
+      return 0.0;
+    }
+    
+    double total = 0.0;
+    for (int i = 1; i < _measurementPoints.length; i++) {
+      total += _distance.as(
+        LengthUnit.Meter,
+        _measurementPoints[i - 1],
+        _measurementPoints[i],
+      );
+    }
+    return total;
+  }
+  
+  // 格式化距離顯示
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.toStringAsFixed(2)} m';
+    } else {
+      return '${(meters / 1000).toStringAsFixed(2)} km';
+    }
+  }
+  
   // 記錄中的統計信息浮動窗口
   Widget _buildStatsOverlay(RecordingProvider recordingProvider) {
     return Container(
@@ -776,4 +1156,83 @@ class _JourneyScreenState extends State<JourneyScreen> {
   }
 }
 
+// 圖釘標記繪製器（圓圈+數字+尖端）
+class PinMarkerPainter extends CustomPainter {
+  final int number;
+  final Color color;
+
+  PinMarkerPainter({
+    required this.number,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final circleRadius = 13.0;
+    final circleCenter = Offset(centerX, circleRadius + 2);
+
+    // 1. 繪製陰影
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawCircle(circleCenter, circleRadius, shadowPaint);
+
+    // 2. 繪製圓圈
+    final circlePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(circleCenter, circleRadius, circlePaint);
+
+    // 3. 繪製白色邊框
+    final borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawCircle(circleCenter, circleRadius, borderPaint);
+
+    // 4. 繪製下方尖端（三角形）
+    final tipPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final tipTop = circleCenter.dy + circleRadius;
+    final tipBottom = size.height;
+    final tipWidth = 8.0;
+
+    final tipPath = ui.Path()
+      ..moveTo(centerX, tipBottom) // 底部尖點
+      ..lineTo(centerX - tipWidth / 2, tipTop) // 左上
+      ..lineTo(centerX + tipWidth / 2, tipTop) // 右上
+      ..close();
+
+    canvas.drawPath(tipPath, tipPaint);
+
+    // 5. 繪製數字
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: number.toString(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        circleCenter.dx - textPainter.width / 2,
+        circleCenter.dy - textPainter.height / 2,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant PinMarkerPainter oldDelegate) {
+    return oldDelegate.number != number || oldDelegate.color != color;
+  }
+}
 

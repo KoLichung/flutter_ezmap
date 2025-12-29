@@ -339,6 +339,172 @@ class GpxService {
     return calculateAscentWithThreshold(points, 0.5); // 使用0.5m阈值
   }
   
+  // 计算总下降高度（米）- 使用可配置阈值
+  static double calculateDescentWithThreshold(List<Map<String, dynamic>> points, double threshold) {
+    if (points.length < 2) return 0.0;
+
+    double totalDescent = 0.0;
+
+    for (int i = 1; i < points.length; i++) {
+      final elevationLoss = (points[i - 1]['ele'] as double) - (points[i]['ele'] as double);
+      
+      // 只累加超过阈值的正向下降
+      if (elevationLoss >= threshold) {
+        totalDescent += elevationLoss;
+      }
+    }
+    
+    return totalDescent;
+  }
+  
+  // 计算总下降高度（米）
+  static double calculateTotalDescent(List<Map<String, dynamic>> points) {
+    return calculateDescentWithThreshold(points, 0.5); // 使用0.5m阈值
+  }
+  
+  // 按天分组时间戳（使用本地時間 +08:00）
+  static Map<String, Duration> groupByDays(List<Map<String, dynamic>> points) {
+    final dayGroups = <String, List<Map<String, dynamic>>>{};
+    
+    print('=== groupByDays 開始 ===');
+    print('總點數: ${points.length}');
+    
+    // 記錄所有不同的日期（本地時間）
+    final allDates = <String>[];
+    
+    for (var point in points) {
+      if (point['time'] != null) {
+        final time = point['time'] as DateTime;
+        // 轉換為本地時間（+08:00）
+        final localTime = time.add(const Duration(hours: 8));
+        final dayKey = '${localTime.year}-${localTime.month.toString().padLeft(2, '0')}-${localTime.day.toString().padLeft(2, '0')}';
+        
+        if (!allDates.contains(dayKey)) {
+          allDates.add(dayKey);
+        }
+        
+        if (!dayGroups.containsKey(dayKey)) {
+          dayGroups[dayKey] = [];
+        }
+        dayGroups[dayKey]!.add(point);
+      }
+    }
+    
+    allDates.sort();
+    print('發現的日期 (本地時間 +08:00): $allDates');
+    print('日期數量: ${allDates.length}');
+    
+    final result = <String, Duration>{};
+    int dayIndex = 1;
+    
+    // 按日期排序
+    final sortedDays = dayGroups.keys.toList()..sort();
+    
+    print('排序後的日期: $sortedDays');
+    
+    for (var dayKey in sortedDays) {
+      final dayPoints = dayGroups[dayKey]!;
+      if (dayPoints.isNotEmpty) {
+        final firstTime = dayPoints.first['time'] as DateTime;
+        final lastTime = dayPoints.last['time'] as DateTime;
+        final duration = lastTime.difference(firstTime);
+        final firstLocalTime = firstTime.add(const Duration(hours: 8));
+        final lastLocalTime = lastTime.add(const Duration(hours: 8));
+        print('第 $dayIndex 天 ($dayKey): ${dayPoints.length} 個點, 時長: ${duration.inHours}h${duration.inMinutes % 60}m');
+        print('  開始時間 (UTC): $firstTime');
+        print('  開始時間 (本地): $firstLocalTime');
+        print('  結束時間 (UTC): $lastTime');
+        print('  結束時間 (本地): $lastLocalTime');
+        result['第 $dayIndex 天'] = duration;
+        dayIndex++;
+      }
+    }
+    
+    print('最終結果: ${result.keys.toList()}');
+    print('=== groupByDays 結束 ===');
+    
+    return result;
+  }
+  
+  // 按天索引獲取該天的數據點（使用本地時間 +08:00）
+  static List<Map<String, dynamic>> getDayPoints(List<Map<String, dynamic>> points, int dayIndex) {
+    print('=== getDayPoints 開始 ===');
+    print('請求第 $dayIndex 天的數據');
+    print('總點數: ${points.length}');
+    
+    final dayGroups = <String, List<Map<String, dynamic>>>{};
+    
+    for (var point in points) {
+      if (point['time'] != null) {
+        final time = point['time'] as DateTime;
+        // 轉換為本地時間（+08:00）
+        final localTime = time.add(const Duration(hours: 8));
+        final dayKey = '${localTime.year}-${localTime.month.toString().padLeft(2, '0')}-${localTime.day.toString().padLeft(2, '0')}';
+        
+        if (!dayGroups.containsKey(dayKey)) {
+          dayGroups[dayKey] = [];
+        }
+        dayGroups[dayKey]!.add(point);
+      }
+    }
+    
+    // 按日期排序
+    final sortedDays = dayGroups.keys.toList()..sort();
+    print('排序後的日期 (本地時間): $sortedDays');
+    print('日期數量: ${sortedDays.length}');
+    
+    if (dayIndex >= 1 && dayIndex <= sortedDays.length) {
+      final dayKey = sortedDays[dayIndex - 1];
+      final result = dayGroups[dayKey] ?? [];
+      print('選擇日期: $dayKey (索引 ${dayIndex - 1})');
+      print('返回點數: ${result.length}');
+      if (result.isNotEmpty) {
+        final firstTime = result.first['time'] as DateTime;
+        final lastTime = result.last['time'] as DateTime;
+        print('  開始時間 (UTC): $firstTime');
+        print('  開始時間 (本地): ${firstTime.add(const Duration(hours: 8))}');
+        print('  結束時間 (UTC): $lastTime');
+        print('  結束時間 (本地): ${lastTime.add(const Duration(hours: 8))}');
+      }
+      print('=== getDayPoints 結束 ===');
+      return result;
+    }
+    
+    print('索引超出範圍，返回空列表');
+    print('=== getDayPoints 結束 ===');
+    return [];
+  }
+  
+  // 获取距离-高度数据点（用于图表）
+  static List<Map<String, double>> getDistanceElevationData(List<Map<String, dynamic>> points) {
+    if (points.isEmpty) return [];
+    
+    final data = <Map<String, double>>[];
+    double cumulativeDistance = 0.0;
+    const distance = Distance();
+    
+    // 第一个点
+    data.add({
+      'distance': 0.0,
+      'elevation': (points[0]['ele'] as double),
+    });
+    
+    for (int i = 1; i < points.length; i++) {
+      final p1 = LatLng(points[i - 1]['lat'] as double, points[i - 1]['lon'] as double);
+      final p2 = LatLng(points[i]['lat'] as double, points[i]['lon'] as double);
+      final segmentDistance = distance.as(LengthUnit.Meter, p1, p2);
+      
+      cumulativeDistance += segmentDistance;
+      
+      data.add({
+        'distance': cumulativeDistance / 1000.0, // 转换为公里
+        'elevation': (points[i]['ele'] as double),
+      });
+    }
+    
+    return data;
+  }
+  
   // 获取路线统计数据
   static Map<String, dynamic> getRouteStats(Gpx gpx) {
     // 1. 获取原始数据
@@ -361,13 +527,15 @@ class GpxService {
     final smoothedElevation = smoothElevation(smoothedCoords, 5);
     print('高度平滑完成');
     
-    // 6. 计算距离和爬升（爬升阈值0.5m）
+    // 6. 计算距离、爬升和下降（阈值0.5m）
     final distance = calculateTotalDistance(smoothedCoords);
     final ascent = calculateAscentWithThreshold(smoothedElevation, 0.5);
+    final descent = calculateDescentWithThreshold(smoothedElevation, 0.5);
     
     print('计算结果:');
     print('  距离: ${distance.toStringAsFixed(2)}km');
     print('  爬升: ${ascent.toStringAsFixed(0)}m');
+    print('  下降: ${descent.toStringAsFixed(0)}m');
     
     // 7. 计算时长
     Duration? duration;
@@ -379,8 +547,10 @@ class GpxService {
     return {
       'distance': distance,
       'ascent': ascent,
+      'descent': descent,
       'duration': duration,
       'pointCount': smoothedElevation.length,
+      'smoothedPoints': smoothedElevation,
     };
   }
 }
