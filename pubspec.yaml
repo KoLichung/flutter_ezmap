@@ -40,6 +40,9 @@ dependencies:
   
   # Map
   flutter_map: ^8.2.2
+  maplibre_gl: ^0.25.0
+  vector_map_tiles: ^9.0.0-beta.8
+  vector_tile_renderer: ^6.0.0
   latlong2: ^0.9.0
   
   # GPS & Location
@@ -52,6 +55,7 @@ dependencies:
   # Storage
   path_provider: ^2.1.2
   sqflite: ^2.3.2
+  path: ^1.9.1
   
   # Compass
   flutter_compass: ^0.8.0
@@ -63,6 +67,11 @@ dependencies:
   intl: ^0.19.0
   share_plus: ^7.2.2
   file_picker: ^8.1.4
+  
+  # HTTP
+  http: ^1.1.0
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
 
 dev_dependencies:
   flutter_test:
@@ -88,7 +97,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-    - lib/test_files/
+    - lib/resource/mbtiles/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

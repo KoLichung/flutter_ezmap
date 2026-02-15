@@ -69,3 +69,5 @@ coverage/
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
 !/dev/ci/**/Gemfile.lock
 
+# Map resources (mbtiles, fonts, sprites - too large for repo)
+lib/resource/

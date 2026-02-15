@@ -10,34 +10,22 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的'),
+        title: const Text('我的健行地圖'),
         backgroundColor: Colors.green.shade700,
         foregroundColor: Colors.white,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 搜索
-          _buildMenuItem(
-            context,
-            icon: Icons.search,
-            title: '搜索',
-            subtitle: '搜尋路線和記錄',
-            onTap: () {
-              // TODO: 導航到搜索頁面
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('搜索功能開發中...')),
-              );
-            },
-          ),
-          const Divider(),
+          // 頭像和用戶信息
+          _buildUserSection(context),
+          const SizedBox(height: 24),
           
           // 已下載路線
           _buildMenuItem(
             context,
             icon: Icons.download_done,
             title: '已下載路線',
-            subtitle: '查看已下載的路線',
             onTap: () async {
               final result = await Navigator.push<bool>(
                 context,
@@ -52,64 +40,119 @@ class ProfileScreen extends StatelessWidget {
               }
             },
           ),
-          const Divider(),
+          const Divider(height: 1),
           
           // 我的紀錄
           _buildMenuItem(
             context,
             icon: Icons.history,
             title: '我的紀錄',
-            subtitle: '查看過去的活動記錄',
             onTap: () {
-              // TODO: 導航到活動列表頁面
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('我的紀錄功能開發中...')),
               );
             },
           ),
-          const Divider(),
+          const Divider(height: 1),
           
-          // 地圖包
-          _buildMenuItem(
-            context,
-            icon: Icons.map,
-            title: '地圖包',
-            subtitle: '管理離線地圖',
-            onTap: () {
-              // TODO: 導航到地圖包管理頁面
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('地圖包功能開發中...')),
-              );
-            },
+          const SizedBox(height: 16),
+          
+          // 版本號（居中）
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                '版本號 1.0.0',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey.shade600,
+                ),
+              ),
+            ),
           ),
-          const Divider(),
-          
-          const SizedBox(height: 24),
-          
-          // 設定
-          _buildMenuItem(
-            context,
-            icon: Icons.settings,
-            title: '設定',
-            subtitle: 'App 設定',
-            onTap: () {
-              // TODO: 導航到設定頁面
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('設定功能開發中...')),
-              );
-            },
+        ],
+      ),
+    );
+  }
+
+  // 用戶信息區域
+  Widget _buildUserSection(BuildContext context) {
+    // TODO: 從狀態管理獲取用戶登錄狀態
+    final bool isLoggedIn = false; // 暫時設為未登錄
+    final String userName = 'User Name'; // 暫時的用戶名
+    
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          // 頭像
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.green.shade700,
+            child: Icon(
+              Icons.person,
+              size: 36,
+              color: Colors.white,
+            ),
           ),
-          const Divider(),
+          const SizedBox(width: 16),
           
-          // 關於
-          _buildMenuItem(
-            context,
-            icon: Icons.info_outline,
-            title: '關於',
-            subtitle: '關於 EzMap',
-            onTap: () {
-              _showAboutDialog(context);
-            },
+          // 用戶名或登錄按鈕
+          Expanded(
+            child: isLoggedIn
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        userName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '查看個人資料',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '尚未登錄',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('登錄功能開發中...')),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 8,
+                          ),
+                        ),
+                        child: const Text('登錄'),
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -120,10 +163,10 @@ class ProfileScreen extends StatelessWidget {
     BuildContext context, {
     required IconData icon,
     required String title,
-    required String subtitle,
     required VoidCallback onTap,
   }) {
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       leading: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
@@ -133,54 +176,22 @@ class ProfileScreen extends StatelessWidget {
         child: Icon(
           icon,
           color: Colors.green.shade700,
-          size: 28,
+          size: 24,
         ),
       ),
       title: Text(
         title,
         style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        subtitle,
-        style: TextStyle(
-          fontSize: 14,
-          color: Colors.grey.shade600,
+          fontSize: 15,
+          fontWeight: FontWeight.w500,
         ),
       ),
       trailing: Icon(
         Icons.chevron_right,
         color: Colors.grey.shade400,
+        size: 20,
       ),
       onTap: onTap,
-    );
-  }
-
-  void _showAboutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('關於 EzMap'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('版本: 1.0.0'),
-            SizedBox(height: 8),
-            Text('簡易登山導航 App'),
-            SizedBox(height: 8),
-            Text('提供離線地圖、GPS 軌跡記錄和導航功能'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('確定'),
-          ),
-        ],
-      ),
     );
   }
 }

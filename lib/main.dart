@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'providers/recording_provider.dart';
 import 'providers/map_provider.dart';
-import 'screens/home_screen.dart';
+import 'screens/journey_screen.dart';
 import 'services/route_service.dart';
 
 void main() {
@@ -39,7 +39,9 @@ class _MyAppState extends State<MyApp> {
   // 處理應用啟動時接收到的檔案
   Future<void> _handleInitialSharedFile() async {
     try {
-      final filePath = await platform.invokeMethod<String>('getInitialSharedFile');
+      final filePath = await platform.invokeMethod<String>(
+        'getInitialSharedFile',
+      );
       if (filePath != null && filePath.isNotEmpty) {
         _processSharedFile(filePath);
       }
@@ -50,7 +52,9 @@ class _MyAppState extends State<MyApp> {
 
   // 處理應用運行時接收到的檔案
   void _handleIncomingSharedFile() {
-    const EventChannel eventChannel = EventChannel('com.chijia.flutter_ezmap/shared_file_stream');
+    const EventChannel eventChannel = EventChannel(
+      'com.chijia.flutter_ezmap/shared_file_stream',
+    );
     _fileStreamSubscription = eventChannel.receiveBroadcastStream().listen(
       (dynamic filePath) {
         if (filePath != null && filePath is String) {
@@ -75,7 +79,7 @@ class _MyAppState extends State<MyApp> {
               duration: const Duration(seconds: 3),
             ),
           );
-          
+
           // 如果當前在已下載路線頁面，需要刷新列表
           // 這裡可以通過 Provider 或 EventBus 來通知頁面刷新
           // 暫時先記錄，實際刷新會在用戶返回該頁面時自動觸發
@@ -112,12 +116,17 @@ class _MyAppState extends State<MyApp> {
             seedColor: const Color(0xFF2E7D32), // 登山綠
           ),
           useMaterial3: true,
-          appBarTheme: const AppBarTheme(
-            centerTitle: true,
-            elevation: 0,
-          ),
+          appBarTheme: const AppBarTheme(centerTitle: true, elevation: 0),
         ),
-        home: const HomeScreen(),
+        home: Builder(
+          builder: (context) {
+            // 初始化 GPS 位置
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<RecordingProvider>().initializePosition();
+            });
+            return const JourneyScreen();
+          },
+        ),
       ),
     );
   }
