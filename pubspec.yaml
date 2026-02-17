@@ -40,6 +40,7 @@ dependencies:
   
   # Map
   flutter_map: ^8.2.2
+  flutter_map_animations: ^0.9.0
   maplibre_gl: ^0.25.0
   vector_map_tiles: ^9.0.0-beta.8
   vector_tile_renderer: ^6.0.0

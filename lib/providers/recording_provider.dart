@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/activity.dart';
@@ -8,12 +9,14 @@ import '../services/gps_service.dart';
 
 class RecordingProvider extends ChangeNotifier {
   final GpsService _gpsService = GpsService();
-  
+
   Activity? _currentActivity;
   bool _isRecording = false;
   bool _isPaused = false;
   Position? _currentPosition;
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<CompassEvent>? _compassSubscription;
+  double? _latestCompassHeading;
   
   // 用於通知地圖初始化的回調（包含方向信息）
   Function(LatLng, double?)? onInitialPositionReceived;
@@ -29,7 +32,15 @@ class RecordingProvider extends ChangeNotifier {
   bool get isRecording => _isRecording;
   bool get isPaused => _isPaused;
   Position? get currentPosition => _currentPosition;
-  
+
+  /// 當前方向（度數 0–360，0 為北）
+  /// 優先使用羅盤，若無則使用 GPS heading
+  double? get currentHeading =>
+      _latestCompassHeading ??
+      (_currentPosition != null && _currentPosition!.heading >= 0
+          ? _currentPosition!.heading
+          : null);
+
   // 當前統計數據
   double get currentDistance => _currentActivity?.totalDistance ?? 0;
   double get currentAscent => _currentActivity?.totalAscent ?? 0;
@@ -58,19 +69,19 @@ class RecordingProvider extends ChangeNotifier {
     
     // 通知開始記錄（啟動地圖跟隨模式）
     onStartRecording?.call();
-    
+
+    _startCompassSubscription();
+
     // 如果還沒有 GPS 監聽，則開始監聽
-    if (_positionSubscription == null) {
-      _positionSubscription = _gpsService.getPositionStream().listen(
-        (position) {
-          updatePosition(position);
-        },
-        onError: (error) {
-          // GPS error occurred
-        },
-      );
-    }
-    
+    _positionSubscription ??= _gpsService.getPositionStream().listen(
+      (position) {
+        updatePosition(position);
+      },
+      onError: (error) {
+        // GPS error occurred
+      },
+    );
+
     notifyListeners();
   }
   
@@ -80,25 +91,25 @@ class RecordingProvider extends ChangeNotifier {
     if (position != null) {
       _currentPosition = position;
       // 通知地圖初始化到這個位置（包含方向信息）
-      final heading = position.heading != null && position.heading >= 0 ? position.heading : null;
+      final heading = position.heading >= 0 ? position.heading : null;
       onInitialPositionReceived?.call(
         LatLng(position.latitude, position.longitude),
         heading,
       );
       notifyListeners();
     }
-    
+
+    _startCompassSubscription();
+
     // 即使沒有記錄，也要持續監聽位置更新
-    if (_positionSubscription == null) {
-      _positionSubscription = _gpsService.getPositionStream().listen(
-        (position) {
-          updatePosition(position);
-        },
-        onError: (error) {
-          // GPS error occurred
-        },
-      );
-    }
+    _positionSubscription ??= _gpsService.getPositionStream().listen(
+      (position) {
+        updatePosition(position);
+      },
+      onError: (error) {
+        // GPS error occurred
+      },
+    );
   }
   
   // 暫停記錄
@@ -138,16 +149,33 @@ class RecordingProvider extends ChangeNotifier {
   @override
   void dispose() {
     _positionSubscription?.cancel();
+    _compassSubscription?.cancel();
     super.dispose();
   }
   
+  void _startCompassSubscription() {
+    if (_compassSubscription != null) return;
+    final stream = FlutterCompass.events;
+    if (stream == null) return;
+    _compassSubscription = stream.listen(
+      (CompassEvent event) {
+        if (event.heading != null) {
+          _latestCompassHeading = event.heading;
+          notifyListeners();
+        }
+      },
+      onError: (_) {},
+    );
+  }
+
   // 更新當前位置
   void updatePosition(Position position, {double? compassHeading}) {
     _currentPosition = position;
-    
+
     // 通知地圖位置更新（傳遞羅盤方向）
     // 優先使用羅盤方向，如果沒有則使用 GPS heading
-    final heading = compassHeading ?? (position.heading >= 0 ? position.heading : null);
+    final heading =
+        compassHeading ?? _latestCompassHeading ?? (position.heading >= 0 ? position.heading : null);
     onPositionUpdate?.call(
       LatLng(position.latitude, position.longitude),
       heading,

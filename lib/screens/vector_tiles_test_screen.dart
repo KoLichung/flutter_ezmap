@@ -59,6 +59,7 @@ class _VectorTilesTestScreenState extends State<VectorTilesTestScreen> {
         baseStyle.providers.tileProviderBySource,
       );
       if (providersBySource.containsKey(themes.$3)) {
+        // Force contour provider max zoom to 12 so high zoom uses overzoom.
         providersBySource[_contourSourceId] = NetworkVectorTileProvider(
           urlTemplate: _server.baseTilesTemplate,
           minimumZoom: 0,
@@ -88,11 +89,12 @@ class _VectorTilesTestScreenState extends State<VectorTilesTestScreen> {
 
     final baseSources =
         (baseStyleJson['sources'] as Map?)?.cast<String, dynamic>() ?? {};
-    final vectorSourceId = baseSources.entries.firstWhere(
-      (entry) =>
-          ((entry.value as Map?)?['type']?.toString() ?? '') == 'vector',
-      orElse: () => const MapEntry('openmaptiles', <String, dynamic>{}),
-    ).key;
+    final vectorSourceId = baseSources.entries
+        .firstWhere(
+          (entry) => ((entry.value as Map?)?['type']?.toString() ?? '') == 'vector',
+          orElse: () => const MapEntry('openmaptiles', <String, dynamic>{}),
+        )
+        .key;
 
     final baseVectorSource =
         (baseSources[vectorSourceId] as Map?)?.cast<String, dynamic>() ??
@@ -158,6 +160,7 @@ class _VectorTilesTestScreenState extends State<VectorTilesTestScreen> {
     final layout = Map<String, dynamic>.from(
       (layer['layout'] as Map?)?.cast<String, dynamic>() ?? {},
     );
+    // Force point placement so labels no longer follow line angle.
     layout['symbol-placement'] = 'point';
     layout['text-rotation-alignment'] = 'viewport';
     layout['icon-rotation-alignment'] = 'viewport';
@@ -247,8 +250,7 @@ class _VectorTilesTestScreenState extends State<VectorTilesTestScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,

@@ -4,9 +4,8 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'providers/recording_provider.dart';
 import 'providers/map_provider.dart';
-import 'screens/journey_screen.dart';
+import 'screens/new_journey_screen.dart';
 import 'services/route_service.dart';
-
 void main() {
   runApp(const MyApp());
 }
@@ -124,7 +123,7 @@ class _MyAppState extends State<MyApp> {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               context.read<RecordingProvider>().initializePosition();
             });
-            return const JourneyScreen();
+            return const NewJourneyScreen();
           },
         ),
       ),
