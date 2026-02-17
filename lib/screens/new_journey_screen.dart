@@ -14,7 +14,10 @@ import 'package:vector_tile_renderer/vector_tile_renderer.dart' as vtr;
 import '../providers/map_provider.dart';
 import '../providers/recording_provider.dart';
 import '../resource/mbtiles/mbtiles_local_server.dart';
+import '../services/mountain_db_service.dart';
+import '../widgets/trail_info_panel.dart';
 import 'profile_screen.dart';
+import 'search_screen.dart';
 
 /// NewJourneyScreen: vector_tiles_test_screen 邏輯 + journey_screen UI 結構
 class NewJourneyScreen extends StatefulWidget {
@@ -50,6 +53,8 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   );
   double _currentZoom = _initialZoom;
   double _centerLatitude = 25.04; // 台灣緯度預設值
+  TrailDetail? _selectedTrailDetail;
+  LatLng? _trailHighlightPoint; // 高度表觸控時對應的地圖位置
 
   @override
   void initState() {
@@ -274,6 +279,15 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 return const SizedBox.shrink();
               },
             ),
+            if (_selectedTrailDetail != null)
+              TrailInfoPanel(
+                trail: _selectedTrailDetail!,
+                onClose: () => setState(() {
+                  _selectedTrailDetail = null;
+                  _trailHighlightPoint = null;
+                }),
+                onChartTouch: (point) => setState(() => _trailHighlightPoint = point),
+              ),
           ],
         ),
       ),
@@ -343,6 +357,45 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
             sprites: _sprites,
             layerMode: VectorTileLayerMode.vector,
             tileOffset: TileOffset.DEFAULT,
+          ),
+        if (_selectedTrailDetail != null &&
+            _selectedTrailDetail!.pathPoints.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: _selectedTrailDetail!
+                    .pathPoints
+                    .map((p) => LatLng(p.lat, p.lon))
+                    .toList(),
+                color: Colors.green.shade600,
+                strokeWidth: 4,
+              ),
+            ],
+          ),
+        if (_trailHighlightPoint != null)
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: _trailHighlightPoint!,
+                width: 20,
+                height: 20,
+                alignment: Alignment.center,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade600,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         Consumer<RecordingProvider>(
           builder: (context, recordingProvider, child) {
@@ -581,7 +634,24 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           },
         ),
         const SizedBox(height: 12),
-        _buildActionButton(icon: Icons.search, onPressed: () {}),
+        _buildActionButton(
+          icon: Icons.search,
+          onPressed: () async {
+            final result = await Navigator.push<SearchItem>(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SearchScreen(),
+              ),
+            );
+            if (result != null && mounted) {
+              final detail = await MountainDbService.getTrailDetail(result.id);
+              if (detail != null && mounted) {
+                setState(() => _selectedTrailDetail = detail);
+                _fitTrailOnMap(detail);
+              }
+            }
+          },
+        ),
         const SizedBox(height: 12),
         _buildActionButton(icon: Icons.straighten, onPressed: () {}),
         const SizedBox(height: 12),
@@ -637,6 +707,50 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
       LatLng(position.latitude, position.longitude),
       zoom: 16,
     );
+  }
+
+  /// 匯入步道時：縮放至顯示全部路線、居中並上移 150px
+  void _fitTrailOnMap(TrailDetail detail) {
+    if (detail.pathPoints.isEmpty) {
+      if (detail.lat != null && detail.lon != null) {
+        _animatedMapController.centerOnPoint(
+          LatLng(detail.lat!, detail.lon!),
+          zoom: 14,
+        );
+      }
+      return;
+    }
+    double minLat = detail.pathPoints.first.lat;
+    double maxLat = minLat;
+    double minLon = detail.pathPoints.first.lon;
+    double maxLon = minLon;
+    for (final p in detail.pathPoints) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lon < minLon) minLon = p.lon;
+      if (p.lon > maxLon) maxLon = p.lon;
+    }
+    final bounds = LatLngBounds(
+      LatLng(minLat, minLon),
+      LatLng(maxLat, maxLon),
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _animatedMapController.mapController.fitCamera(
+        CameraFit.bounds(
+          bounds: bounds,
+          padding: const EdgeInsets.only(bottom: 200),
+        ),
+      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final camera = _animatedMapController.mapController.camera;
+        _animatedMapController.mapController.move(
+          camera.center,
+          camera.zoom - 0.5,
+        );
+      });
+    });
   }
 
   Widget _buildContourButton() {
