@@ -747,7 +747,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         final camera = _animatedMapController.mapController.camera;
         _animatedMapController.mapController.move(
           camera.center,
-          camera.zoom - 0.5,
+          camera.zoom - 0.6,
         );
       });
     });
