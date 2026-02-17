@@ -56,6 +56,10 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   TrailDetail? _selectedTrailDetail;
   LatLng? _trailHighlightPoint; // 高度表觸控時對應的地圖位置
 
+  // 測距模式
+  bool _isMeasuring = false;
+  final List<LatLng> _measurementPoints = [];
+
   @override
   void initState() {
     super.initState();
@@ -279,6 +283,13 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 return const SizedBox.shrink();
               },
             ),
+            if (_isMeasuring)
+              Positioned(
+                bottom: MediaQuery.of(context).padding.bottom + 24,
+                left: 16,
+                right: 16,
+                child: _buildMeasurementPanel(),
+              ),
             if (_selectedTrailDetail != null)
               TrailInfoPanel(
                 trail: _selectedTrailDetail!,
@@ -287,6 +298,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                   _trailHighlightPoint = null;
                 }),
                 onChartTouch: (point) => setState(() => _trailHighlightPoint = point),
+                collapsed: _isMeasuring,
               ),
           ],
         ),
@@ -326,6 +338,11 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         initialZoom: _initialZoom,
         backgroundColor: const Color(0xFFF2EADA),
         maxZoom: 18,
+        onTap: (event, point) {
+          if (_isMeasuring) {
+            setState(() => _measurementPoints.add(point));
+          }
+        },
         onPositionChanged: (position, hasGesture) {
           final zoom = position.zoom;
           final lat = position.center.latitude;
@@ -371,6 +388,38 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 strokeWidth: 4,
               ),
             ],
+          ),
+        // 測距圖釘標記與連線
+        if (_isMeasuring && _measurementPoints.length >= 2)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: _measurementPoints,
+                color: Colors.green.shade300,
+                strokeWidth: 3,
+              ),
+            ],
+          ),
+        if (_isMeasuring && _measurementPoints.isNotEmpty)
+          MarkerLayer(
+            markers: _measurementPoints.asMap().entries.map((entry) {
+              final index = entry.key;
+              final point = entry.value;
+              return Marker(
+                point: point,
+                width: 30,
+                height: 50,
+                alignment: Alignment.topCenter,
+                rotate: true,
+                child: CustomPaint(
+                  size: const Size(30, 50),
+                  painter: PinMarkerPainter(
+                    number: index + 1,
+                    color: Colors.green.shade300,
+                  ),
+                ),
+              );
+            }).toList(),
           ),
         if (_trailHighlightPoint != null)
           MarkerLayer(
@@ -653,7 +702,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           },
         ),
         const SizedBox(height: 12),
-        _buildActionButton(icon: Icons.straighten, onPressed: () {}),
+        _buildMeasureButton(),
         const SizedBox(height: 12),
         _buildContourButton(),
         const SizedBox(height: 12),
@@ -692,6 +741,120 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         padding: EdgeInsets.zero,
       ),
     );
+  }
+
+  Widget _buildMeasureButton() {
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: _isMeasuring ? Colors.green.shade300 : Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: IconButton(
+        icon: Icon(
+          Icons.straighten,
+          color: _isMeasuring ? Colors.green.shade800 : Colors.green.shade300,
+        ),
+        onPressed: () {
+          setState(() {
+            _isMeasuring = !_isMeasuring;
+            if (!_isMeasuring) _measurementPoints.clear();
+          });
+          if (_isMeasuring) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('測距模式：點擊地圖新增測量點'),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          }
+        },
+        iconSize: 24,
+        padding: EdgeInsets.zero,
+      ),
+    );
+  }
+
+  Widget _buildMeasurementPanel() {
+    final totalMeters = _calculateMeasurementDistance();
+    final totalKm = totalMeters / 1000;
+    final distanceStr = totalKm >= 1
+        ? '${totalKm.toStringAsFixed(2)} km'
+        : '${totalMeters.toStringAsFixed(0)} m';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.straighten, color: Colors.green.shade300, size: 24),
+          const SizedBox(width: 8),
+          Text(
+            '總距離: $distanceStr',
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          OutlinedButton(
+            onPressed: () {
+              setState(() => _measurementPoints.clear());
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.green.shade300,
+              side: BorderSide(color: Colors.green.shade300),
+            ),
+            child: const Text('清除'),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            onPressed: () {
+              setState(() {
+                _isMeasuring = false;
+                _measurementPoints.clear();
+              });
+            },
+            icon: const Icon(Icons.close),
+            style: IconButton.styleFrom(
+              foregroundColor: Colors.grey.shade700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _calculateMeasurementDistance() {
+    if (_measurementPoints.length < 2) return 0;
+    const distance = Distance();
+    double totalMeters = 0;
+    for (int i = 0; i < _measurementPoints.length - 1; i++) {
+      totalMeters += distance.as(
+        LengthUnit.Meter,
+        _measurementPoints[i],
+        _measurementPoints[i + 1],
+      );
+    }
+    return totalMeters;
   }
 
   void _moveToCurrentLocation() {
@@ -1062,5 +1225,85 @@ class _ContourIconPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _ContourIconPainter oldDelegate) {
     return oldDelegate.color != color;
+  }
+}
+
+/// 圖釘標記繪製器（圓圈+數字+尖端）
+class PinMarkerPainter extends CustomPainter {
+  final int number;
+  final Color color;
+
+  PinMarkerPainter({
+    required this.number,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final circleRadius = 13.0;
+    final circleCenter = Offset(centerX, circleRadius + 2);
+
+    // 1. 繪製陰影
+    final shadowPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    canvas.drawCircle(circleCenter, circleRadius, shadowPaint);
+
+    // 2. 繪製圓圈
+    final circlePaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(circleCenter, circleRadius, circlePaint);
+
+    // 3. 繪製白色邊框
+    final borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawCircle(circleCenter, circleRadius, borderPaint);
+
+    // 4. 繪製下方尖端（三角形）
+    final tipPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final tipTop = circleCenter.dy + circleRadius;
+    final tipBottom = size.height;
+    const tipWidth = 8.0;
+
+    final tipPath = ui.Path()
+      ..moveTo(centerX, tipBottom) // 底部尖點
+      ..lineTo(centerX - tipWidth / 2, tipTop) // 左上
+      ..lineTo(centerX + tipWidth / 2, tipTop) // 右上
+      ..close();
+
+    canvas.drawPath(tipPath, tipPaint);
+
+    // 5. 繪製數字
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: number.toString(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(
+        circleCenter.dx - textPainter.width / 2,
+        circleCenter.dy - textPainter.height / 2,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant PinMarkerPainter oldDelegate) {
+    return oldDelegate.number != number || oldDelegate.color != color;
   }
 }

@@ -9,12 +9,15 @@ class TrailInfoPanel extends StatefulWidget {
   final VoidCallback onClose;
   /// 高度表觸控時回調，傳入對應的 LatLng；鬆開時傳 null
   final void Function(LatLng? point)? onChartTouch;
+  /// 強制收縮至最低高度（例如測距模式時）
+  final bool collapsed;
 
   const TrailInfoPanel({
     super.key,
     required this.trail,
     required this.onClose,
     this.onChartTouch,
+    this.collapsed = false,
   });
 
   @override
@@ -34,14 +37,17 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
       right: 0,
       bottom: 0,
       child: GestureDetector(
-        onVerticalDragUpdate: (d) {
-          setState(() {
-            _panelHeight = (_panelHeight - d.delta.dy).clamp(_minHeight, _maxHeight);
-          });
-        },
+        onVerticalDragUpdate: widget.collapsed
+            ? null
+            : (d) {
+                setState(() {
+                  _panelHeight =
+                      (_panelHeight - d.delta.dy).clamp(_minHeight, _maxHeight);
+                });
+              },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          height: _panelHeight,
+          height: widget.collapsed ? _minHeight : _panelHeight,
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
@@ -53,11 +59,11 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
               ),
             ],
           ),
-          child: Column(
+              child: Column(
             children: [
               _buildHeader(),
               Expanded(
-                child: _panelHeight > 100
+                child: !widget.collapsed && _panelHeight > 100
                     ? SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                         child: Column(
