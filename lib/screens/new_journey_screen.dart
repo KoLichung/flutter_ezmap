@@ -53,6 +53,8 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   );
   double _currentZoom = _initialZoom;
   double _centerLatitude = 25.04; // 台灣緯度預設值
+  /// 定位按鈕模式：null=狀態1, 2=地圖北, 3=方向北；滑動/旋轉時清為 null
+  int? _locationFollowMode;
   TrailDetail? _selectedTrailDetail;
   LatLng? _trailHighlightPoint; // 高度表觸控時對應的地圖位置
 
@@ -344,18 +346,11 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           }
         },
         onPositionChanged: (position, hasGesture) {
-          final zoom = position.zoom;
-          final lat = position.center.latitude;
-          if ((zoom - _currentZoom).abs() < 0.05 &&
-              (lat - _centerLatitude).abs() < 0.001) {
-            return;
-          }
-          if (!mounted) {
-            return;
-          }
+          if (!mounted) return;
           setState(() {
-            _currentZoom = zoom;
-            _centerLatitude = lat;
+            _currentZoom = position.zoom;
+            _centerLatitude = position.center.latitude;
+            if (hasGesture) _locationFollowMode = null;
           });
         },
       ),
@@ -706,10 +701,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         const SizedBox(height: 12),
         _buildContourButton(),
         const SizedBox(height: 12),
-        _buildActionButton(
-          icon: Icons.navigation,
-          onPressed: _moveToCurrentLocation,
-        ),
+        _buildLocationButton(recordingProvider),
         const SizedBox(height: 12),
         _buildRecordButton(recordingProvider),
       ],
@@ -741,6 +733,130 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         padding: EdgeInsets.zero,
       ),
     );
+  }
+
+  static const int _locMapNorth = 2;
+  static const int _locDirNorth = 3;
+
+  double _normalizeRotation(double deg) {
+    while (deg < 0) {
+      deg += 360;
+    }
+    while (deg >= 360) {
+      deg -= 360;
+    }
+    return deg;
+  }
+
+  Widget _buildLocationButton(RecordingProvider recordingProvider) {
+    final mode = _locationFollowMode;
+    final iconAngleDeg = (mode == _locDirNorth) ? 0.0 : 45.0;
+    final showN = (mode == _locMapNorth);
+
+    return GestureDetector(
+      onTap: () => _onLocationButtonTap(recordingProvider),
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (showN) ...[
+              Text(
+                'N',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade600,
+                ),
+              ),
+              const SizedBox(height: 2),
+            ],
+            Transform.translate(
+              offset: showN ? const Offset(0, -8) : Offset.zero,
+              child: Transform.rotate(
+                angle: iconAngleDeg * math.pi / 180,
+                child: Icon(
+                  Icons.navigation,
+                  color: Colors.green.shade600,
+                  size: 24,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onLocationButtonTap(RecordingProvider recordingProvider) {
+    final position = recordingProvider.currentPosition;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('尚未取得 GPS 位置')),
+      );
+      return Future.value();
+    }
+    final loc = LatLng(position.latitude, position.longitude);
+    final heading = recordingProvider.currentHeading;
+    final currentZoom = _animatedMapController.mapController.camera.zoom;
+
+    if (_locationFollowMode == null) {
+      _locationFollowMode = _locMapNorth;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: 16,
+        rotation: 0,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 地圖北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } else if (_locationFollowMode == _locMapNorth) {
+      _locationFollowMode = _locDirNorth;
+      final targetRotation =
+          heading != null ? _normalizeRotation(-heading) : 0.0;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: currentZoom,
+        rotation: targetRotation,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 方向北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } else {
+      _locationFollowMode = _locMapNorth;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: currentZoom,
+        rotation: 0,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 地圖北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+    setState(() {});
+    return Future.value();
   }
 
   Widget _buildMeasureButton() {
@@ -855,21 +971,6 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
       );
     }
     return totalMeters;
-  }
-
-  void _moveToCurrentLocation() {
-    final recordingProvider = context.read<RecordingProvider>();
-    final position = recordingProvider.currentPosition;
-    if (position == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('尚未取得 GPS 位置')),
-      );
-      return;
-    }
-    _animatedMapController.centerOnPoint(
-      LatLng(position.latitude, position.longitude),
-      zoom: 16,
-    );
   }
 
   /// 匯入步道時：縮放至顯示全部路線、居中並上移 150px
