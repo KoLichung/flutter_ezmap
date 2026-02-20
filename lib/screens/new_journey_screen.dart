@@ -28,7 +28,7 @@ class NewJourneyScreen extends StatefulWidget {
 }
 
 class _NewJourneyScreenState extends State<NewJourneyScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   static const String _contourSourceId = 'contours_overzoom';
   static const double _initialZoom = 12;
 
@@ -65,6 +65,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadStyle();
     final recordingProvider = context.read<RecordingProvider>();
     recordingProvider.onInitialPositionReceived = (location, heading) {
@@ -82,9 +83,31 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _animatedMapController.dispose();
     _server.stop();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed && mounted) {
+      _centerOnResume();
+    }
+  }
+
+  void _centerOnResume() {
+    final recordingProvider = context.read<RecordingProvider>();
+    final position = recordingProvider.currentPosition;
+    if (position == null) return;
+    final loc = LatLng(position.latitude, position.longitude);
+    final currentZoom = _animatedMapController.mapController.camera.zoom;
+    _animatedMapController.animateTo(
+      dest: loc,
+      zoom: currentZoom,
+      rotation: _animatedMapController.mapController.camera.rotation,
+    );
   }
 
   Future<void> _loadStyle() async {
@@ -1056,6 +1079,12 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           _showStopRecordingDialog(context, recordingProvider);
         } else {
           recordingProvider.startRecording();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('開始紀錄'),
+              duration: Duration(seconds: 1),
+            ),
+          );
         }
       },
       child: Container(
@@ -1094,27 +1123,77 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   ) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('結束記錄'),
-        content: const Text('確定要結束記錄嗎？軌跡將會被保存。'),
+        content: const Text('請選擇要如何處理此次記錄？'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _showDiscardConfirmDialog(context, recordingProvider);
+            },
+            child: Text(
+              '捨棄',
+              style: TextStyle(color: Colors.orange.shade700),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              await recordingProvider.stopRecording();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('記錄已保存')),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('紀錄並保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDiscardConfirmDialog(
+    BuildContext context,
+    RecordingProvider recordingProvider,
+  ) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('確認捨棄'),
+        content: const Text(
+          '確定要捨棄此次記錄嗎？捨棄後將無法復原。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('取消'),
           ),
           ElevatedButton(
             onPressed: () {
-              recordingProvider.stopRecording();
-              Navigator.pop(context);
+              recordingProvider.discardRecording();
+              Navigator.pop(dialogContext);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('記錄已保存')),
+                const SnackBar(
+                  content: Text('已捨棄記錄'),
+                  duration: Duration(seconds: 1),
+                ),
               );
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               foregroundColor: Colors.white,
             ),
-            child: const Text('結束'),
+            child: const Text('確定捨棄'),
           ),
         ],
       ),
@@ -1228,7 +1307,25 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                     color: recordingProvider.isPaused
                         ? Colors.green.shade700
                         : Colors.orange.shade700,
-                    onTap: () {},
+                    onTap: () {
+                      if (recordingProvider.isPaused) {
+                        recordingProvider.resumeRecording();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('繼續紀錄'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      } else {
+                        recordingProvider.pauseRecording();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('已暫停紀錄'),
+                            duration: Duration(seconds: 1),
+                          ),
+                        );
+                      }
+                    },
                   ),
                   _buildControlButton(
                     icon: Icons.stop,

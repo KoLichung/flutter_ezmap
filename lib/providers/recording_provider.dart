@@ -124,7 +124,7 @@ class RecordingProvider extends ChangeNotifier {
     notifyListeners();
   }
   
-  // 停止記錄
+  // 停止記錄並保存
   Future<void> stopRecording() async {
     if (_currentActivity != null) {
       _currentActivity!.endTime = DateTime.now();
@@ -143,6 +143,15 @@ class RecordingProvider extends ChangeNotifier {
     // 不停止 GPS 監聽，因為我們需要持續顯示當前位置
     // 只是停止記錄軌跡點
     
+    notifyListeners();
+  }
+
+  // 捨棄記錄（不保存）
+  void discardRecording() {
+    _isRecording = false;
+    _isPaused = false;
+    _currentActivity = null;
+    onStopRecording?.call();
     notifyListeners();
   }
   
