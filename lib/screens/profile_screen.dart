@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'downloaded_routes_screen.dart';
+import 'my_records_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
   final Function(int)? onSwitchTab;
@@ -47,10 +48,16 @@ class ProfileScreen extends StatelessWidget {
             context,
             icon: Icons.history,
             title: '我的紀錄',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('我的紀錄功能開發中...')),
+            onTap: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const MyRecordsScreen(),
+                ),
               );
+              if (result == true && onSwitchTab != null) {
+                onSwitchTab!(0);
+              }
             },
           ),
           const Divider(height: 1),

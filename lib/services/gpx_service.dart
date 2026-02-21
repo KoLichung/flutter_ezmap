@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:gpx/gpx.dart';
 import 'package:latlong2/latlong.dart';
+import '../models/activity.dart';
 
 class GpxService {
   // 从 assets 读取 GPX 文件
@@ -505,6 +506,49 @@ class GpxService {
     return data;
   }
   
+  /// 將 Activity 轉換為 GPX XML 字串
+  static String exportActivityToGpx(Activity activity) {
+    final gpx = Gpx();
+    gpx.version = '1.1';
+    gpx.creator = 'EzMap';
+    gpx.metadata = Metadata();
+    gpx.metadata!.name = activity.name;
+    gpx.metadata!.time = activity.startTime;
+
+    // 軌跡點
+    final trkpts = activity.trackPoints.map((p) {
+      return Wpt(
+        lat: p.latitude,
+        lon: p.longitude,
+        ele: p.altitude,
+        time: p.timestamp,
+      );
+    }).toList();
+
+    if (trkpts.isNotEmpty) {
+      gpx.trks = [
+        Trk(
+          name: activity.name,
+          trksegs: [Trkseg(trkpts: trkpts)],
+        ),
+      ];
+    }
+
+    // 紀錄點（waypoints）
+    for (final wp in activity.waypoints) {
+      gpx.wpts.add(Wpt(
+        lat: wp.latitude,
+        lon: wp.longitude,
+        ele: wp.altitude,
+        time: wp.timestamp,
+        name: wp.name,
+        desc: wp.description,
+      ));
+    }
+
+    return GpxWriter().asString(gpx, pretty: true);
+  }
+
   // 获取路线统计数据
   static Map<String, dynamic> getRouteStats(Gpx gpx) {
     // 1. 获取原始数据

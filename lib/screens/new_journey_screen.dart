@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -11,11 +12,12 @@ import 'package:provider/provider.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
 import 'package:vector_tile_renderer/vector_tile_renderer.dart' as vtr;
 
-import '../providers/map_provider.dart';
 import '../providers/recording_provider.dart';
+import '../services/route_service.dart';
 import '../resource/mbtiles/mbtiles_local_server.dart';
 import '../services/mountain_db_service.dart';
 import '../widgets/trail_info_panel.dart';
+import 'activity_analysis_screen.dart';
 import 'profile_screen.dart';
 import 'search_screen.dart';
 
@@ -53,14 +55,13 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   );
   double _currentZoom = _initialZoom;
   double _centerLatitude = 25.04; // 台灣緯度預設值
-  /// 定位按鈕模式：null=狀態1, 2=地圖北, 3=方向北；滑動/旋轉時清為 null
-  int? _locationFollowMode;
   TrailDetail? _selectedTrailDetail;
   LatLng? _trailHighlightPoint; // 高度表觸控時對應的地圖位置
 
   // 測距模式
   bool _isMeasuring = false;
   final List<LatLng> _measurementPoints = [];
+  Timer? _recordingTimer;
 
   @override
   void initState() {
@@ -83,6 +84,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
 
   @override
   void dispose() {
+    _recordingTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _animatedMapController.dispose();
     _server.stop();
@@ -281,23 +283,15 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 );
               },
             ),
-            Consumer2<MapProvider, RecordingProvider>(
-              builder: (context, mapProvider, recordingProvider, child) {
-                if (!recordingProvider.isRecording &&
-                    mapProvider.gpxRoutePoints != null &&
-                    mapProvider.gpxRoutePoints!.isNotEmpty) {
-                  return Positioned(
-                    top: MediaQuery.of(context).padding.top + 305,
-                    right: 16,
-                    child: _buildClearRouteButton(),
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
             Consumer<RecordingProvider>(
               builder: (context, recordingProvider, child) {
                 if (recordingProvider.isRecording) {
+                  _recordingTimer ??= Timer.periodic(
+                    const Duration(seconds: 1),
+                    (_) {
+                      if (mounted) setState(() {});
+                    },
+                  );
                   return Positioned(
                     bottom: 0,
                     left: 0,
@@ -305,6 +299,8 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                     child: _buildStatsOverlay(recordingProvider),
                   );
                 }
+                _recordingTimer?.cancel();
+                _recordingTimer = null;
                 return const SizedBox.shrink();
               },
             ),
@@ -373,7 +369,6 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           setState(() {
             _currentZoom = position.zoom;
             _centerLatitude = position.center.latitude;
-            if (hasGesture) _locationFollowMode = null;
           });
         },
       ),
@@ -439,6 +434,29 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
               );
             }).toList(),
           ),
+        // 紀錄時即時顯示軌跡（褐色）
+        Consumer<RecordingProvider>(
+          builder: (context, recordingProvider, child) {
+            final activity = recordingProvider.currentActivity;
+            if (activity == null ||
+                !recordingProvider.isRecording ||
+                activity.trackPoints.length < 2) {
+              return const SizedBox.shrink();
+            }
+            final points = activity.trackPoints
+                .map((p) => LatLng(p.latitude, p.longitude))
+                .toList();
+            return PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: points,
+                  color: Colors.brown.shade700,
+                  strokeWidth: 5,
+                ),
+              ],
+            );
+          },
+        ),
         if (_trailHighlightPoint != null)
           MarkerLayer(
             markers: [
@@ -724,8 +742,6 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         const SizedBox(height: 12),
         _buildContourButton(),
         const SizedBox(height: 12),
-        _buildLocationButton(recordingProvider),
-        const SizedBox(height: 12),
         _buildRecordButton(recordingProvider),
       ],
     );
@@ -756,130 +772,6 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         padding: EdgeInsets.zero,
       ),
     );
-  }
-
-  static const int _locMapNorth = 2;
-  static const int _locDirNorth = 3;
-
-  double _normalizeRotation(double deg) {
-    while (deg < 0) {
-      deg += 360;
-    }
-    while (deg >= 360) {
-      deg -= 360;
-    }
-    return deg;
-  }
-
-  Widget _buildLocationButton(RecordingProvider recordingProvider) {
-    final mode = _locationFollowMode;
-    final iconAngleDeg = (mode == _locDirNorth) ? 0.0 : 45.0;
-    final showN = (mode == _locMapNorth);
-
-    return GestureDetector(
-      onTap: () => _onLocationButtonTap(recordingProvider),
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.2),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (showN) ...[
-              Text(
-                'N',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.green.shade600,
-                ),
-              ),
-              const SizedBox(height: 2),
-            ],
-            Transform.translate(
-              offset: showN ? const Offset(0, -8) : Offset.zero,
-              child: Transform.rotate(
-                angle: iconAngleDeg * math.pi / 180,
-                child: Icon(
-                  Icons.navigation,
-                  color: Colors.green.shade600,
-                  size: 24,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _onLocationButtonTap(RecordingProvider recordingProvider) {
-    final position = recordingProvider.currentPosition;
-    if (position == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('尚未取得 GPS 位置')),
-      );
-      return Future.value();
-    }
-    final loc = LatLng(position.latitude, position.longitude);
-    final heading = recordingProvider.currentHeading;
-    final currentZoom = _animatedMapController.mapController.camera.zoom;
-
-    if (_locationFollowMode == null) {
-      _locationFollowMode = _locMapNorth;
-      _animatedMapController.animateTo(
-        dest: loc,
-        zoom: 16,
-        rotation: 0,
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('位置置中, 地圖北'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    } else if (_locationFollowMode == _locMapNorth) {
-      _locationFollowMode = _locDirNorth;
-      final targetRotation =
-          heading != null ? _normalizeRotation(-heading) : 0.0;
-      _animatedMapController.animateTo(
-        dest: loc,
-        zoom: currentZoom,
-        rotation: targetRotation,
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('位置置中, 方向北'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    } else {
-      _locationFollowMode = _locMapNorth;
-      _animatedMapController.animateTo(
-        dest: loc,
-        zoom: currentZoom,
-        rotation: 0,
-      );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('位置置中, 地圖北'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-    }
-    setState(() {});
-    return Future.value();
   }
 
   Widget _buildMeasureButton() {
@@ -1144,10 +1036,14 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
+              final activity = recordingProvider.currentActivity;
+              if (activity != null && activity.trackPoints.isNotEmpty) {
+                await RouteService.saveMyRecord(activity);
+              }
               await recordingProvider.stopRecording();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('記錄已保存')),
+                  const SnackBar(content: Text('記錄已保存並匯出 GPX')),
                 );
               }
             },
@@ -1156,6 +1052,53 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
               foregroundColor: Colors.white,
             ),
             child: const Text('紀錄並保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddWaypointDialog(
+    BuildContext context,
+    RecordingProvider recordingProvider,
+  ) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('添加紀錄點'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '輸入紀錄點說明（可選）',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              recordingProvider.addWaypoint(controller.text);
+              Navigator.pop(dialogContext);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('已添加紀錄點'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('確定'),
           ),
         ],
       ),
@@ -1200,26 +1143,16 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
     );
   }
 
-  Widget _buildClearRouteButton() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.red.shade600,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: IconButton(
-        icon: const Icon(Icons.delete_outline),
-        onPressed: () {},
-        color: Colors.white,
-        iconSize: 24,
-      ),
-    );
+  String _formatDuration(DateTime? startTime) {
+    if (startTime == null) return '00:00:00';
+    final now = DateTime.now();
+    final duration = now.difference(startTime);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    final seconds = duration.inSeconds.remainder(60);
+    return '${hours.toString().padLeft(2, '0')}:'
+        '${minutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
   }
 
   Widget _buildStatsOverlay(RecordingProvider recordingProvider) {
@@ -1245,9 +1178,9 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 children: [
                   const Icon(Icons.access_time, size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
-                  const Text(
-                    '00:00:00',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  Text(
+                    _formatDuration(recordingProvider.currentActivity?.startTime),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(width: 16),
                   const Icon(Icons.straighten, size: 16, color: Colors.grey),
@@ -1292,12 +1225,54 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                   _buildControlButton(
                     icon: Icons.analytics_outlined,
                     label: '活動分析',
-                    onTap: () {},
+                    onTap: () {
+                      final activity = recordingProvider.currentActivity;
+                      List<Map<String, double>>? chartData;
+                      if (activity != null &&
+                          activity.trackPoints.length >= 2) {
+                        double cumDist = 0;
+                        const dist = Distance();
+                        chartData = [];
+                        for (int i = 0; i < activity.trackPoints.length; i++) {
+                          final p = activity.trackPoints[i];
+                          if (i > 0) {
+                            final prev = activity.trackPoints[i - 1];
+                            cumDist += dist.as(
+                              LengthUnit.Meter,
+                              LatLng(prev.latitude, prev.longitude),
+                              LatLng(p.latitude, p.longitude),
+                            ) / 1000;
+                          }
+                          chartData.add({
+                            'distance': cumDist,
+                            'elevation': p.altitude ?? 0.0,
+                          });
+                        }
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ActivityAnalysisScreen(
+                            activityName: activity?.name,
+                            startTime: activity?.startTime,
+                            duration: activity != null
+                                ? DateTime.now().difference(activity.startTime)
+                                : null,
+                            distance: activity != null
+                                ? activity.totalDistance
+                                : null,
+                            ascent: activity != null ? activity.totalAscent : null,
+                            descent: activity != null ? activity.totalDescent : null,
+                            chartData: chartData,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   _buildControlButton(
                     icon: Icons.add_location_outlined,
                     label: '紀錄點',
-                    onTap: () {},
+                    onTap: () => _showAddWaypointDialog(context, recordingProvider),
                   ),
                   _buildControlButton(
                     icon: recordingProvider.isPaused

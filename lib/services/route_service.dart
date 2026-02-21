@@ -1,11 +1,90 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:gpx/gpx.dart';
+import '../models/activity.dart';
 import 'gpx_service.dart';
 
 class RouteService {
   static const String _routesFolderName = 'downloaded_routes';
+  static const String _myRecordsFolderName = 'my_records';
   
+  // 獲取我的紀錄文件夾路徑
+  static Future<Directory> _getMyRecordsDirectory() async {
+    final appDocDir = await getApplicationDocumentsDirectory();
+    final dir = Directory('${appDocDir.path}/$_myRecordsFolderName');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  /// 儲存記錄為 GPX（我的紀錄）
+  static Future<String?> saveMyRecord(Activity activity) async {
+    try {
+      final dir = await _getMyRecordsDirectory();
+      final safeName = activity.name
+          .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
+          .trim();
+      final fileName = '${safeName}_${activity.startTime.millisecondsSinceEpoch}.gpx';
+      final gpxContent = GpxService.exportActivityToGpx(activity);
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsString(gpxContent);
+      return file.path;
+    } catch (e) {
+      print('Error saving my record: $e');
+      return null;
+    }
+  }
+
+  /// 獲取所有我的紀錄
+  static Future<List<RouteFile>> getMyRecords() async {
+    try {
+      final dir = await _getMyRecordsDirectory();
+      final files = dir.listSync();
+      final records = <RouteFile>[];
+
+      for (var file in files) {
+        if (file is File && file.path.endsWith('.gpx')) {
+          try {
+            final gpx = await GpxService.loadGpxFromFile(file.path);
+            if (gpx != null) {
+              final stats = GpxService.getRouteStats(gpx);
+              final fileName = file.path.split('/').last;
+              var nameWithoutExt = fileName.replaceAll('.gpx', '');
+              nameWithoutExt = nameWithoutExt.replaceAll(RegExp(r'_\d+$'), '');
+              if (nameWithoutExt.isEmpty) nameWithoutExt = fileName.replaceAll('.gpx', '');
+
+              String durationStr = '--';
+              if (stats['duration'] != null) {
+                final duration = stats['duration'] as Duration;
+                final hours = duration.inHours;
+                final minutes = duration.inMinutes % 60;
+                durationStr = '${hours}h${minutes}m';
+              }
+
+              records.add(RouteFile(
+                name: nameWithoutExt,
+                filePath: file.path,
+                distance: '${stats['distance'].toStringAsFixed(2)}km',
+                duration: durationStr,
+                elevation: '${stats['ascent'].toStringAsFixed(0)}m',
+                createdAt: await file.lastModified(),
+              ));
+            }
+          } catch (e) {
+            print('Error loading record ${file.path}: $e');
+          }
+        }
+      }
+
+      records.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return records;
+    } catch (e) {
+      print('Error getting my records: $e');
+      return [];
+    }
+  }
+
   // 獲取路線文件夾路徑
   static Future<Directory> _getRoutesDirectory() async {
     final appDocDir = await getApplicationDocumentsDirectory();

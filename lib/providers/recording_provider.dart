@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/activity.dart';
 import '../models/track_point.dart';
+import '../models/waypoint.dart';
 import '../services/gps_service.dart';
 
 class RecordingProvider extends ChangeNotifier {
@@ -146,6 +147,23 @@ class RecordingProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 添加紀錄點（需在記錄中且有當前位置）
+  void addWaypoint(String text) {
+    if (!_isRecording || _currentActivity == null || _currentPosition == null) {
+      return;
+    }
+    final wp = Waypoint(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      name: text.trim().isEmpty ? '紀錄點' : text.trim(),
+      latitude: _currentPosition!.latitude,
+      longitude: _currentPosition!.longitude,
+      altitude: _currentPosition!.altitude,
+      timestamp: DateTime.now(),
+    );
+    _currentActivity!.waypoints.add(wp);
+    notifyListeners();
+  }
+
   // 捨棄記錄（不保存）
   void discardRecording() {
     _isRecording = false;
@@ -201,20 +219,29 @@ class RecordingProvider extends ChangeNotifier {
         ),
       );
       
-      // 簡單計算距離（實際應該更複雜）
+      // 計算距離、爬升、下降
       if (_currentActivity!.trackPoints.length > 1) {
         final points = _currentActivity!.trackPoints;
         final last = points[points.length - 2];
         final current = points.last;
-        
+
         final distance = Geolocator.distanceBetween(
           last.latitude,
           last.longitude,
           current.latitude,
           current.longitude,
         );
-        
         _currentActivity!.totalDistance += distance / 1000; // 轉換為公里
+
+        // 爬升/下降（高度差超過 0.5m 才計入）
+        final lastAlt = last.altitude ?? 0.0;
+        final currAlt = current.altitude ?? 0.0;
+        final elevDiff = currAlt - lastAlt;
+        if (elevDiff >= 0.5) {
+          _currentActivity!.totalAscent += elevDiff;
+        } else if (elevDiff <= -0.5) {
+          _currentActivity!.totalDescent += elevDiff.abs();
+        }
       }
     }
     
