@@ -312,15 +312,29 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
               },
             ),
             if (_isMeasuring)
-              Positioned(
-                bottom: MediaQuery.of(context).padding.bottom + 24,
-                left: 16,
-                right: 16,
-                child: _buildMeasurementPanel(),
+              Consumer2<RecordingProvider, MapProvider>(
+                builder: (context, recordingProvider, mapProvider, child) {
+                  final hasGpxOrTrail =
+                      mapProvider.gpxRouteInfo != null ||
+                      _selectedTrailDetail != null;
+                  final bottom = recordingProvider.isRecording
+                      ? _recordingPanelHeight(context) +
+                          (hasGpxOrTrail ? 70 : 24)
+                      : MediaQuery.of(context).padding.bottom + 36;
+                  return Positioned(
+                    bottom: bottom,
+                    left: 16,
+                    right: 16,
+                    child: _buildMeasurementPanel(),
+                  );
+                },
               ),
-            Consumer<MapProvider>(
-              builder: (context, mapProvider, child) {
+            Consumer2<MapProvider, RecordingProvider>(
+              builder: (context, mapProvider, recordingProvider, child) {
                 final gpxInfo = mapProvider.gpxRouteInfo;
+                final bottomOffset = recordingProvider.isRecording
+                    ? _recordingPanelHeight(context)
+                    : 0.0;
                 // 載入 GPX 路線時清除步道選擇，確保只顯示一個 info panel 與一條地圖路線
                 if (gpxInfo != null && _selectedTrailDetail != null) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -342,6 +356,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                     onChartTouch: (point) =>
                         setState(() => _trailHighlightPoint = point),
                     collapsed: _isMeasuring,
+                    bottomOffset: bottomOffset,
                   );
                 }
                 if (_selectedTrailDetail != null) {
@@ -354,6 +369,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                     onChartTouch: (point) =>
                         setState(() => _trailHighlightPoint = point),
                     collapsed: _isMeasuring,
+                    bottomOffset: bottomOffset,
                   );
                 }
                 return const SizedBox.shrink();
@@ -1410,6 +1426,11 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
     );
   }
 
+  /// 紀錄 panel 高度（與 _buildStatsOverlay 結構對應，略減以消除與 GPX/Trail panel 的視覺間距）
+  double _recordingPanelHeight(BuildContext context) {
+    return 110 + MediaQuery.of(context).padding.bottom;
+  }
+
   String _formatDuration(DateTime? startTime) {
     if (startTime == null) return '00:00:00';
     final now = DateTime.now();
@@ -1483,7 +1504,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
             Container(
               height: 72,
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                // color: Colors.grey.shade50,
                 border: Border(top: BorderSide(color: Colors.grey.shade200)),
               ),
               child: Row(

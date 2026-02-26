@@ -11,6 +11,8 @@ class GpxRouteInfoPanel extends StatefulWidget {
   final void Function(LatLng? point)? onChartTouch;
   /// 強制收縮至最低高度（例如測距模式時）
   final bool collapsed;
+  /// 底部偏移（例如有紀錄 panel 時，設為紀錄 panel 高度，使本 panel 疊在其上方）
+  final double bottomOffset;
 
   const GpxRouteInfoPanel({
     super.key,
@@ -18,6 +20,7 @@ class GpxRouteInfoPanel extends StatefulWidget {
     required this.onClose,
     this.onChartTouch,
     this.collapsed = false,
+    this.bottomOffset = 0,
   });
 
   @override
@@ -35,7 +38,7 @@ class _GpxRouteInfoPanelState extends State<GpxRouteInfoPanel> {
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 0,
+      bottom: widget.bottomOffset,
       child: GestureDetector(
         onVerticalDragUpdate: widget.collapsed
             ? null
@@ -65,14 +68,16 @@ class _GpxRouteInfoPanelState extends State<GpxRouteInfoPanel> {
               Expanded(
                 child: !widget.collapsed && _panelHeight > 100
                     ? SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _buildTitle(widget.info.name),
+                            const SizedBox(height: 8),
                             _buildStats(),
                             if (widget.info.chartData.length > 1) ...[
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               _buildChart(),
                             ],
                           ],
@@ -121,6 +126,30 @@ class _GpxRouteInfoPanelState extends State<GpxRouteInfoPanel> {
     );
   }
 
+  Widget _buildTitle(String title) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SizedBox(
+          width: constraints.maxWidth,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildStats() {
     final info = widget.info;
     String durationStr = '--';
@@ -132,28 +161,26 @@ class _GpxRouteInfoPanelState extends State<GpxRouteInfoPanel> {
         durationStr = '${d.inMinutes}m';
       }
     }
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        _StatItem(
-          label: '路線長度',
-          value: '${info.distanceKm.toStringAsFixed(1)} km',
+        _CompactStatItem(
           icon: Icons.straighten,
+          text: '${info.distanceKm.toStringAsFixed(1)} km',
         ),
-        _StatItem(
-          label: '爬升',
-          value: '${info.ascentM.toStringAsFixed(0)} m',
+        _CompactStatItem(
           icon: Icons.arrow_upward,
+          text: '${info.ascentM.toStringAsFixed(0)} m',
         ),
-        _StatItem(
-          label: '下降',
-          value: '${info.descentM.toStringAsFixed(0)} m',
+        _CompactStatItem(
           icon: Icons.arrow_downward,
+          text: '${info.descentM.toStringAsFixed(0)} m',
         ),
-        _StatItem(
-          label: '時長',
-          value: durationStr,
+        _CompactStatItem(
           icon: Icons.access_time,
+          text: durationStr,
         ),
       ],
     );
@@ -359,33 +386,25 @@ class _GpxRouteInfoPanelState extends State<GpxRouteInfoPanel> {
   }
 }
 
-class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
+class _CompactStatItem extends StatelessWidget {
   final IconData icon;
+  final String text;
 
-  const _StatItem({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
+  const _CompactStatItem({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 20, color: Colors.green.shade600),
-        const SizedBox(height: 4),
+        Icon(icon, size: 16, color: Colors.green.shade600),
+        const SizedBox(width: 4),
         Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade700,
           ),
         ),
       ],

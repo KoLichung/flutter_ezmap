@@ -11,6 +11,8 @@ class TrailInfoPanel extends StatefulWidget {
   final void Function(LatLng? point)? onChartTouch;
   /// 強制收縮至最低高度（例如測距模式時）
   final bool collapsed;
+  /// 底部偏移（例如有紀錄 panel 時，設為紀錄 panel 高度，使本 panel 疊在其上方）
+  final double bottomOffset;
 
   const TrailInfoPanel({
     super.key,
@@ -18,6 +20,7 @@ class TrailInfoPanel extends StatefulWidget {
     required this.onClose,
     this.onChartTouch,
     this.collapsed = false,
+    this.bottomOffset = 0,
   });
 
   @override
@@ -35,7 +38,7 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
     return Positioned(
       left: 0,
       right: 0,
-      bottom: 0,
+      bottom: widget.bottomOffset,
       child: GestureDetector(
         onVerticalDragUpdate: widget.collapsed
             ? null
