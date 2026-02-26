@@ -170,6 +170,28 @@ class RouteService {
     }
   }
   
+  /// 從 GPX 內容字串匯入到已下載路線（用於測試或 asset 匯入）
+  static Future<String?> importGpxFromContent(String fileName, String gpxContent) async {
+    try {
+      final routesDir = await _getRoutesDirectory();
+      if (!fileName.endsWith('.gpx')) fileName = '$fileName.gpx';
+      final targetFile = File('${routesDir.path}/$fileName');
+      if (await targetFile.exists()) {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final nameWithoutExt = fileName.replaceAll('.gpx', '');
+        final newFileName = '${nameWithoutExt}_$timestamp.gpx';
+        final newTargetFile = File('${routesDir.path}/$newFileName');
+        await newTargetFile.writeAsString(gpxContent);
+        return newTargetFile.path;
+      }
+      await targetFile.writeAsString(gpxContent);
+      return targetFile.path;
+    } catch (e) {
+      print('Error importing GPX from content: $e');
+      return null;
+    }
+  }
+
   // 從檔案路徑保存 GPX 檔案
   static Future<String?> importGpxFile(String sourceFilePath) async {
     try {

@@ -12,10 +12,12 @@ import 'package:provider/provider.dart';
 import 'package:vector_map_tiles/vector_map_tiles.dart';
 import 'package:vector_tile_renderer/vector_tile_renderer.dart' as vtr;
 
+import '../providers/map_provider.dart';
 import '../providers/recording_provider.dart';
 import '../services/route_service.dart';
 import '../resource/mbtiles/mbtiles_local_server.dart';
 import '../services/mountain_db_service.dart';
+import '../widgets/gpx_route_info_panel.dart';
 import '../widgets/trail_info_panel.dart';
 import 'activity_analysis_screen.dart';
 import 'profile_screen.dart';
@@ -55,6 +57,8 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   );
   double _currentZoom = _initialZoom;
   double _centerLatitude = 25.04; // 台灣緯度預設值
+  /// 定位按鈕模式：null=狀態1, 2=地圖北, 3=方向北；滑動/旋轉時清為 null
+  int? _locationFollowMode;
   TrailDetail? _selectedTrailDetail;
   LatLng? _trailHighlightPoint; // 高度表觸控時對應的地圖位置
 
@@ -62,6 +66,9 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
   bool _isMeasuring = false;
   final List<LatLng> _measurementPoints = [];
   Timer? _recordingTimer;
+
+  /// 已 animate 到的 GPX 路線版本，避免重複動畫
+  int _lastAnimatedGpxRouteVersion = 0;
 
   @override
   void initState() {
@@ -311,16 +318,47 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
                 right: 16,
                 child: _buildMeasurementPanel(),
               ),
-            if (_selectedTrailDetail != null)
-              TrailInfoPanel(
-                trail: _selectedTrailDetail!,
-                onClose: () => setState(() {
-                  _selectedTrailDetail = null;
-                  _trailHighlightPoint = null;
-                }),
-                onChartTouch: (point) => setState(() => _trailHighlightPoint = point),
-                collapsed: _isMeasuring,
-              ),
+            Consumer<MapProvider>(
+              builder: (context, mapProvider, child) {
+                final gpxInfo = mapProvider.gpxRouteInfo;
+                // 載入 GPX 路線時清除步道選擇，確保只顯示一個 info panel 與一條地圖路線
+                if (gpxInfo != null && _selectedTrailDetail != null) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      setState(() {
+                        _selectedTrailDetail = null;
+                        _trailHighlightPoint = null;
+                      });
+                    }
+                  });
+                }
+                if (gpxInfo != null) {
+                  return GpxRouteInfoPanel(
+                    info: gpxInfo,
+                    onClose: () {
+                      mapProvider.clearGpxRoute();
+                      setState(() => _trailHighlightPoint = null);
+                    },
+                    onChartTouch: (point) =>
+                        setState(() => _trailHighlightPoint = point),
+                    collapsed: _isMeasuring,
+                  );
+                }
+                if (_selectedTrailDetail != null) {
+                  return TrailInfoPanel(
+                    trail: _selectedTrailDetail!,
+                    onClose: () => setState(() {
+                      _selectedTrailDetail = null;
+                      _trailHighlightPoint = null;
+                    }),
+                    onChartTouch: (point) =>
+                        setState(() => _trailHighlightPoint = point),
+                    collapsed: _isMeasuring,
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
           ],
         ),
       ),
@@ -369,6 +407,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           setState(() {
             _currentZoom = position.zoom;
             _centerLatitude = position.center.latitude;
+            if (hasGesture) _locationFollowMode = null;
           });
         },
       ),
@@ -482,6 +521,46 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
               ),
             ],
           ),
+        // 從「已下載路線」或「我的紀錄」載入的 GPX 路線
+        Consumer<MapProvider>(
+          builder: (context, mapProvider, child) {
+            final points = mapProvider.gpxRoutePoints;
+            final bounds = mapProvider.gpxRouteBounds;
+            final version = mapProvider.gpxRouteVersion;
+            if (bounds != null && version > _lastAnimatedGpxRouteVersion) {
+              _lastAnimatedGpxRouteVersion = version;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                _animatedMapController.mapController.fitCamera(
+                  CameraFit.bounds(
+                    bounds: bounds,
+                    padding: const EdgeInsets.only(bottom: 200),
+                  ),
+                );
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  final camera = _animatedMapController.mapController.camera;
+                  _animatedMapController.mapController.move(
+                    camera.center,
+                    camera.zoom - 1,
+                  );
+                });
+              });
+            }
+            if (points == null || points.length < 2) {
+              return const SizedBox.shrink();
+            }
+            return PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: points,
+                  color: Colors.green.shade600,
+                  strokeWidth: 4,
+                ),
+              ],
+            );
+          },
+        ),
         Consumer<RecordingProvider>(
           builder: (context, recordingProvider, child) {
             final position = recordingProvider.currentPosition;
@@ -731,7 +810,11 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
             if (result != null && mounted) {
               final detail = await MountainDbService.getTrailDetail(result.id);
               if (detail != null && mounted) {
-                setState(() => _selectedTrailDetail = detail);
+                context.read<MapProvider>().clearGpxRoute();
+                setState(() {
+                  _selectedTrailDetail = detail;
+                  _trailHighlightPoint = null;
+                });
                 _fitTrailOnMap(detail);
               }
             }
@@ -741,6 +824,8 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         _buildMeasureButton(),
         const SizedBox(height: 12),
         _buildContourButton(),
+        const SizedBox(height: 12),
+        _buildLocationButton(recordingProvider),
         const SizedBox(height: 12),
         _buildRecordButton(recordingProvider),
       ],
@@ -772,6 +857,126 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
         padding: EdgeInsets.zero,
       ),
     );
+  }
+
+  static const int _locMapNorth = 2;
+  static const int _locDirNorth = 3;
+
+  double _normalizeRotation(double deg) {
+    while (deg < 0) deg += 360;
+    while (deg >= 360) deg -= 360;
+    return deg;
+  }
+
+  Widget _buildLocationButton(RecordingProvider recordingProvider) {
+    final mode = _locationFollowMode;
+    final iconAngleDeg = (mode == _locDirNorth) ? 0.0 : 45.0;
+    final showN = (mode == _locMapNorth);
+
+    return GestureDetector(
+      onTap: () => _onLocationButtonTap(recordingProvider),
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (showN) ...[
+              Text(
+                'N',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade600,
+                ),
+              ),
+              const SizedBox(height: 2),
+            ],
+            Transform.translate(
+              offset: showN ? const Offset(0, -8) : Offset.zero,
+              child: Transform.rotate(
+                angle: iconAngleDeg * math.pi / 180,
+                child: Icon(
+                  Icons.navigation,
+                  color: Colors.green.shade600,
+                  size: 24,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _onLocationButtonTap(RecordingProvider recordingProvider) {
+    final position = recordingProvider.currentPosition;
+    if (position == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('尚未取得 GPS 位置')),
+      );
+      return Future.value();
+    }
+    final loc = LatLng(position.latitude, position.longitude);
+    final heading = recordingProvider.currentHeading;
+    final currentZoom = _animatedMapController.mapController.camera.zoom;
+
+    if (_locationFollowMode == null) {
+      _locationFollowMode = _locMapNorth;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: 16,
+        rotation: 0,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 地圖北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } else if (_locationFollowMode == _locMapNorth) {
+      _locationFollowMode = _locDirNorth;
+      final targetRotation =
+          heading != null ? _normalizeRotation(-heading) : 0.0;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: currentZoom,
+        rotation: targetRotation,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 方向北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    } else {
+      _locationFollowMode = _locMapNorth;
+      _animatedMapController.animateTo(
+        dest: loc,
+        zoom: currentZoom,
+        rotation: 0,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('位置置中, 地圖北'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+    setState(() {});
+    return Future.value();
   }
 
   Widget _buildMeasureButton() {
@@ -971,6 +1176,18 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
           _showStopRecordingDialog(context, recordingProvider);
         } else {
           recordingProvider.startRecording();
+          // 開始紀錄時，將地圖置中於當前位置（一次即可）
+          final position = recordingProvider.currentPosition;
+          if (position != null && _tileProviders != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _animatedMapController.centerOnPoint(
+                  LatLng(position.latitude, position.longitude),
+                  zoom: 16,
+                );
+              }
+            });
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('開始紀錄'),
@@ -1034,12 +1251,62 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
             ),
           ),
           ElevatedButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _showSaveRecordDialog(context, recordingProvider);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('紀錄並保存'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSaveRecordDialog(
+    BuildContext context,
+    RecordingProvider recordingProvider,
+  ) {
+    final activity = recordingProvider.currentActivity;
+    if (activity == null || activity.trackPoints.isEmpty) {
+      recordingProvider.stopRecording();
+      return;
+    }
+    final startTime = activity.startTime;
+    final defaultTitle = '紀錄 ${startTime.year}-'
+        '${startTime.month.toString().padLeft(2, '0')}-'
+        '${startTime.day.toString().padLeft(2, '0')} '
+        '${startTime.hour.toString().padLeft(2, '0')}_'
+        '${startTime.minute.toString().padLeft(2, '0')}';
+    final controller = TextEditingController(text: defaultTitle);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('存檔標題'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: '輸入紀錄標題',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
             onPressed: () async {
               Navigator.pop(dialogContext);
-              final activity = recordingProvider.currentActivity;
-              if (activity != null && activity.trackPoints.isNotEmpty) {
-                await RouteService.saveMyRecord(activity);
-              }
+              final title = controller.text.trim().isEmpty
+                  ? defaultTitle
+                  : controller.text.trim();
+              final activityToSave = activity.copyWith(name: title);
+              await RouteService.saveMyRecord(activityToSave);
               await recordingProvider.stopRecording();
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1051,7 +1318,7 @@ class _NewJourneyScreenState extends State<NewJourneyScreen>
               backgroundColor: Colors.green.shade700,
               foregroundColor: Colors.white,
             ),
-            child: const Text('紀錄並保存'),
+            child: const Text('保存'),
           ),
         ],
       ),

@@ -34,6 +34,25 @@ class Activity {
     this.gpxFilePath,
   }) : waypoints = waypoints ?? [];
 
+  Activity copyWith({String? name}) {
+    return Activity(
+      id: id,
+      name: name ?? this.name,
+      startTime: startTime,
+      endTime: endTime,
+      trackPoints: trackPoints,
+      waypoints: waypoints,
+      totalDistance: totalDistance,
+      totalAscent: totalAscent,
+      totalDescent: totalDescent,
+      maxSpeed: maxSpeed,
+      avgSpeed: avgSpeed,
+      movingTime: movingTime,
+      totalTime: totalTime,
+      gpxFilePath: gpxFilePath,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,

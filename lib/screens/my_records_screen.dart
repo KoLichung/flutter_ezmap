@@ -125,12 +125,28 @@ class _MyRecordsScreenState extends State<MyRecordsScreen> {
       }
 
       if (mounted) {
-        context.read<MapProvider>().loadGpxRoute(points, center, bounds);
+        final stats = GpxService.getRouteStats(gpx);
+        final smoothedPoints =
+            stats['smoothedPoints'] as List<Map<String, dynamic>>;
+        final routeInfo = GpxRouteInfo(
+          name: record.name,
+          distanceKm: (stats['distance'] as num).toDouble(),
+          ascentM: (stats['ascent'] as num).toDouble(),
+          descentM: (stats['descent'] as num).toDouble(),
+          duration: stats['duration'] as Duration?,
+          chartData: GpxService.getChartDataWithLocation(smoothedPoints),
+        );
+        context.read<MapProvider>().loadGpxRoute(
+          points,
+          center,
+          bounds,
+          routeInfo: routeInfo,
+        );
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已載入路線: ${record.name}')),
         );
-        Navigator.pop(context, true);
+        Navigator.popUntil(context, (route) => route.isFirst);
       }
     } catch (e) {
       if (mounted) {

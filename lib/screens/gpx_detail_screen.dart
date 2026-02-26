@@ -282,10 +282,21 @@ class _GpxDetailScreenState extends State<GpxDetailScreen> {
         return;
       }
 
-      // 更新 MapProvider
+      // 更新 MapProvider（含路線資訊供地圖顯示資訊面板）
       if (mounted) {
         final mapProvider = context.read<MapProvider>();
-        mapProvider.loadGpxRoute(points, center, bounds);
+        final stats = _allStats!;
+        final smoothedPoints =
+            stats['smoothedPoints'] as List<Map<String, dynamic>>;
+        final routeInfo = GpxRouteInfo(
+          name: _nameController.text,
+          distanceKm: (stats['distance'] as num).toDouble(),
+          ascentM: (stats['ascent'] as num).toDouble(),
+          descentM: (stats['descent'] as num).toDouble(),
+          duration: stats['duration'] as Duration?,
+          chartData: GpxService.getChartDataWithLocation(smoothedPoints),
+        );
+        mapProvider.loadGpxRoute(points, center, bounds, routeInfo: routeInfo);
 
         // 關閉加載對話框
         Navigator.pop(context);
@@ -295,8 +306,8 @@ class _GpxDetailScreenState extends State<GpxDetailScreen> {
           SnackBar(content: Text('已載入路線: ${_nameController.text}')),
         );
 
-        // 返回到已下載路線頁面，並告知需要切換到旅程 tab
-        Navigator.pop(context, true);
+        // 直接回到主地圖畫面
+        Navigator.popUntil(context, (route) => route.isFirst);
       }
     } catch (e) {
       if (mounted) {

@@ -476,6 +476,23 @@ class GpxService {
     return [];
   }
   
+  /// 取得距離-高度圖表資料（含 lat/lon 供觸控定位）
+  static List<Map<String, dynamic>> getChartDataWithLocation(
+    List<Map<String, dynamic>> points,
+  ) {
+    if (points.isEmpty) return [];
+    final base = getDistanceElevationData(points);
+    return [
+      for (int i = 0; i < base.length && i < points.length; i++)
+        {
+          'distance': base[i]['distance'],
+          'elevation': base[i]['elevation'],
+          'lat': points[i]['lat'],
+          'lon': points[i]['lon'],
+        },
+    ];
+  }
+
   // 获取距离-高度数据点（用于图表）
   static List<Map<String, double>> getDistanceElevationData(List<Map<String, dynamic>> points) {
     if (points.isEmpty) return [];

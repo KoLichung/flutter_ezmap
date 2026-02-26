@@ -1,7 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
-import 'dart:math' as math;
+
+/// GPX 路線資訊（用於地圖上的路線資訊面板）
+class GpxRouteInfo {
+  final String name;
+  final double distanceKm;
+  final double ascentM;
+  final double descentM;
+  final Duration? duration;
+  /// 圖表資料：每筆含 distance(km), elevation(m), lat, lon（觸控時定位用）
+  final List<Map<String, dynamic>> chartData;
+
+  GpxRouteInfo({
+    required this.name,
+    required this.distanceKm,
+    required this.ascentM,
+    required this.descentM,
+    this.duration,
+    required this.chartData,
+  });
+}
 
 class MapProvider extends ChangeNotifier {
   final MapController mapController = MapController();
@@ -16,6 +35,8 @@ class MapProvider extends ChangeNotifier {
   List<LatLng>? _gpxRoutePoints;
   LatLng? _gpxRouteCenter;
   LatLngBounds? _gpxRouteBounds;
+  int _gpxRouteVersion = 0; // 用於通知地圖需要 animate 到新路線
+  GpxRouteInfo? _gpxRouteInfo; // 路線資訊（名稱、距離、爬升、圖表等）
   
   // Getters
   LatLng get currentCenter => _currentCenter;
@@ -26,6 +47,8 @@ class MapProvider extends ChangeNotifier {
   List<LatLng>? get gpxRoutePoints => _gpxRoutePoints;
   LatLng? get gpxRouteCenter => _gpxRouteCenter;
   LatLngBounds? get gpxRouteBounds => _gpxRouteBounds;
+  int get gpxRouteVersion => _gpxRouteVersion;
+  GpxRouteInfo? get gpxRouteInfo => _gpxRouteInfo;
   
   // 初始化地圖到用戶當前位置（只執行一次）
   void initializeToCurrentLocation(LatLng location, {double? heading}) {
@@ -136,19 +159,22 @@ class MapProvider extends ChangeNotifier {
     }
   }
   
-  // 加載 GPX 路線
-  void loadGpxRoute(List<LatLng> points, LatLng center, LatLngBounds bounds) {
+  // 加載 GPX 路線（僅設定資料，不呼叫 mapController，因 FlutterMap 在 NewJourneyScreen 使用自己的 controller）
+  void loadGpxRoute(
+    List<LatLng> points,
+    LatLng center,
+    LatLngBounds bounds, {
+    GpxRouteInfo? routeInfo,
+  }) {
     _gpxRoutePoints = points;
     _gpxRouteCenter = center;
     _gpxRouteBounds = bounds;
+    _gpxRouteInfo = routeInfo;
+    _gpxRouteVersion++;
     
-    // 計算適當的縮放級別
     final zoom = _calculateZoomLevel(bounds);
-    
-    // 移動地圖到路線中心並設置縮放級別
     _currentCenter = center;
     _currentZoom = zoom;
-    mapController.move(center, zoom);
     
     notifyListeners();
   }
@@ -158,6 +184,7 @@ class MapProvider extends ChangeNotifier {
     _gpxRoutePoints = null;
     _gpxRouteCenter = null;
     _gpxRouteBounds = null;
+    _gpxRouteInfo = null;
     notifyListeners();
   }
   

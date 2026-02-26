@@ -27,6 +27,35 @@ class _MyAppState extends State<MyApp> {
     super.initState();
     _handleInitialSharedFile();
     _handleIncomingSharedFile();
+    _importTestGpxOnStartup();
+  }
+
+  /// 測試用：app 啟動時自動匯入測試 GPX 到已下載路線
+  void _importTestGpxOnStartup() {
+    print('[Test] _importTestGpxOnStartup 開始');
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      print('[Test] addPostFrameCallback 執行');
+      await Future.delayed(const Duration(milliseconds: 800));
+      try {
+        print('[Test] 讀取 asset...');
+        final content = await rootBundle.loadString(
+          'assets/test_data/record_test.gpx',
+        );
+        print('[Test] asset 讀取成功, 長度: ${content.length}');
+        final savedPath = await RouteService.importGpxFromContent(
+          '記錄 2026-02-26 06_48_1772059682128.gpx',
+          content,
+        );
+        if (savedPath != null) {
+          print('[Test] 已匯入測試 GPX 到已下載路線: $savedPath');
+        } else {
+          print('[Test] 匯入測試 GPX 失敗: savedPath 為 null');
+        }
+      } catch (e, st) {
+        print('[Test] 匯入測試 GPX 失敗: $e');
+        print('[Test] $st');
+      }
+    });
   }
 
   @override

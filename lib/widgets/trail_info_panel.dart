@@ -65,14 +65,16 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
               Expanded(
                 child: !widget.collapsed && _panelHeight > 100
                     ? SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _buildTitle(widget.trail.name),
+                            const SizedBox(height: 8),
                             _buildStats(),
                             if (widget.trail.profileData.length > 1) ...[
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 12),
                               _buildChart(),
                             ],
                           ],
@@ -121,36 +123,60 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
     );
   }
 
+  Widget _buildTitle(String title) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SizedBox(
+          width: constraints.maxWidth,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildStats() {
     final t = widget.trail;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        _StatItem(
-          label: '步道長度',
-          value: t.distanceKm != null
+        _CompactStatItem(
+          icon: Icons.straighten,
+          text: t.distanceKm != null
               ? '${t.distanceKm!.toStringAsFixed(1)} km'
               : '-',
-          icon: Icons.straighten,
         ),
-        _StatItem(
-          label: '爬升',
-          value: t.elevationGain != null
+        _CompactStatItem(
+          icon: Icons.arrow_upward,
+          text: t.elevationGain != null
               ? '${t.elevationGain!.toStringAsFixed(0)} m'
               : '-',
-          icon: Icons.arrow_upward,
         ),
-        _StatItem(
-          label: '下降',
-          value: t.elevationLoss != null
+        _CompactStatItem(
+          icon: Icons.arrow_downward,
+          text: t.elevationLoss != null
               ? '${t.elevationLoss!.toStringAsFixed(0)} m'
               : '-',
-          icon: Icons.arrow_downward,
         ),
       ],
     );
   }
 
+  /// Y 軸固定 4 個值：最低、最高 + 2 個中間值。interval = range/2 可讓 fl_chart 產生 4 刻度
   Widget _buildChart() {
     final data = widget.trail.profileData;
     if (data.isEmpty) return const SizedBox.shrink();
@@ -161,9 +187,11 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
     final maxX = data.map((e) => e.distanceKm).reduce((a, b) => a > b ? a : b);
     final minY = data.map((e) => e.elevation).reduce((a, b) => a < b ? a : b);
     final maxY = data.map((e) => e.elevation).reduce((a, b) => a > b ? a : b);
-    final padY = (maxY - minY) * 0.15;
+    final range = maxY - minY;
+    final padY = range > 0 ? range * 0.08 : 5;
     final yMin = (minY - padY).clamp(minY - 50, minY);
     final yMax = (maxY + padY).clamp(maxY, maxY + 50);
+    final yInterval = range > 0 ? range / 2 : 1.0;
     final xRange = maxX > 0 ? maxX : 1.0;
     final bottomInterval = xRange / 5;
 
@@ -195,11 +223,32 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 36,
-                    interval: (yMax - yMin) / 3,
+                    interval: yInterval,
                     getTitlesWidget: (v, _) {
-                      final isFirst = (v - yMin).abs() < 0.1;
+                      final isBottom = (v - yMin).abs() < 0.5;
+                      final isTop = (v - yMax).abs() < 0.5;
+                      if (isBottom) {
+                        return Text(
+                          '${minY.round()} m',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade700,
+                          ),
+                        );
+                      }
+                      if (isTop) {
+                        return Text(
+                          '${maxY.round()}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.grey.shade700,
+                          ),
+                        );
+                      }
+                      if (v.round() == minY.round()) return const SizedBox.shrink();
+                      if (v.round() == maxY.round()) return const SizedBox.shrink();
                       return Text(
-                        isFirst ? '${v.toInt()} m' : '${v.toInt()}',
+                        '${v.round()}',
                         style: TextStyle(
                           fontSize: 10,
                           color: Colors.grey.shade700,
@@ -304,33 +353,25 @@ class _TrailInfoPanelState extends State<TrailInfoPanel> {
   }
 }
 
-class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
+class _CompactStatItem extends StatelessWidget {
   final IconData icon;
+  final String text;
 
-  const _StatItem({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
+  const _CompactStatItem({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 20, color: Colors.green.shade600),
-        const SizedBox(height: 4),
+        Icon(icon, size: 16, color: Colors.green.shade600),
+        const SizedBox(width: 4),
         Text(
-          label,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade700,
           ),
         ),
       ],
